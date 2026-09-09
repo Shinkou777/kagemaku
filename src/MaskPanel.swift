@@ -203,9 +203,16 @@ final class MaskRootView: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    private var lastMaskSize: CGSize = .zero
+
     override func layout() {
         super.layout()
         blurView.frame = contentRect
+        if contentRect.size != lastMaskSize {
+            lastMaskSize = contentRect.size
+            blurView.maskImage = MaskRootView.roundedMask(
+                radius: Skin.clampRadius(model.skin.cornerRadius, contentRect.size))
+        }
     }
 
     // MARK: 玻璃层（真正的背景模糊，必须留在 AppKit 里）
@@ -215,7 +222,7 @@ final class MaskRootView: NSView {
         guard skin.blur else { return }
         blurView.material = skin.material.material
         blurView.appearance = skin.appearance.appearance
-        blurView.maskImage = MaskRootView.roundedMask(radius: CGFloat(skin.cornerRadius))
+        blurView.maskImage = MaskRootView.roundedMask(radius: Skin.clampRadius(skin.cornerRadius, contentRect.size))
         if abs(skin.blurSaturation - 1) > 0.02 {
             let f = CIFilter(name: "CIColorControls",
                              parameters: ["inputSaturation": skin.blurSaturation])

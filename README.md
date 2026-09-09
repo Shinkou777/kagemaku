@@ -5,13 +5,44 @@
 ## 装
 
 ```bash
-./scripts/build-app.sh          # 编译 + 生成图标 + 组装到 /Applications/Kagemaku.app
-open /Applications/Kagemaku.app
+./scripts/install.sh
 ```
+
+编译、装 App、装 `kagemaku` 命令到 `~/.local/bin`、挂 launchd 登录自启，一步到位。
 
 菜单栏出现一个条状图标，屏幕下方三分之一处出现一条毛玻璃。没有 Dock 图标（LSUIElement）。
 
 需要 Swift 6 工具链（Command Line Tools 即可，不用完整 Xcode）。部署目标 macOS 14。
+
+## 管
+
+launchd 托管，崩了自动拉起，从菜单栏正常退出就不再拉。日常操作都在 `kagemaku` 这一个命令里。
+
+```
+kagemaku up            启动并挂到登录自启
+kagemaku down          停掉并撤销自启
+kagemaku restart       重启
+kagemaku status        进程、版本、遮挡条、部件、设置一次看完
+kagemaku logs [-f]     看日志
+kagemaku build         只重新编译
+kagemaku reload        重新编译并重启（改完代码用这个）
+kagemaku doctor        自检：工具链、签名、路径、授权
+kagemaku uninstall     卸载，加 --purge 连数据一起删
+```
+
+`status` 的输出长这样：
+
+```
+SERVICE      STATE      PID      AUTO     VERSION
+kagemaku     running    2161     on       0.1.0
+
+  遮挡条 1 条
+    遮挡条          938x104  @ 714,100　手动　不透明 100%
+      部件 日期/翻页牌　行情/数码管　新闻/点阵　天气/简约　时间/辉光管
+  浮在全屏之上 是　贴边吸附 是　动效 开
+```
+
+日志在 `~/Library/Logs/Kagemaku/`，LaunchAgent 是 `~/Library/LaunchAgents/app.shinkolab.kagemaku.plist`。
 
 ## 用
 
@@ -50,6 +81,8 @@ open /Applications/Kagemaku.app
 
 样式：辉光管 Nixie、翻页牌 Split-flap（换字带翻转动画）、点阵 LED、七段数码管、霓虹、简约。
 
+开箱默认就摆好一组：左边日期（翻页牌）和日経指数（数码管），中间 NHK 新闻跑马灯（点阵），右边东京天气（简约）和时钟（辉光管）。不要的删掉就行。
+
 内容与数据源：
 
 | 部件 | 来源 | 说明 |
@@ -57,13 +90,17 @@ open /Applications/Kagemaku.app
 | 时间 / 日期 | 本地 | 格式串自己写，如 `HH:mm:ss`、`MM月dd日(EEE)` |
 | 行情 | Yahoo Finance 公开接口 | 代码填 `^N225` `AAPL` `BTC-USD` `USDJPY=X` `GC=F`，60 秒刷新，可带涨跌幅 |
 | 天气 | Open-Meteo | 填城市名，先地理编码再取当前气温和天气码，10 分钟刷新 |
-| 新闻 | 任意 RSS | 填订阅源地址，取标题，配跑马灯滚动，10 分钟刷新 |
+| 新闻 | 任意 RSS | 默认 NHK 主要ニュース，取标题配跑马灯滚动，10 分钟刷新 |
 | 自定义文字 | 自己填 | 想写什么写什么 |
 
 ## 实现上的几个坑
 
 - **毛玻璃必须留在 AppKit。** SwiftUI 的 `.opacity()` / `compositingGroup()` 会把 `NSVisualEffectView` 推进离屏图层，behind-window 的背景模糊直接失效——看着像糊了，其实只是压暗，底下的字一个不少。现在玻璃是 `MaskRootView` 的子视图，SwiftUI 只画着色、描边和部件。
 - **动效层不能跟玻璃做混合。** `blendMode(.plusLighter)` 叠在玻璃上会糊出硬边暗矩形。动效层单独 `compositingGroup()`，不用混合模式。
+- **圆角两层必须同一种曲线。** 玻璃层的 `maskImage` 用 `NSBezierPath` 画正圆弧，SwiftUI 那边就得用 `style: .circular`；混用 `.continuous` squircle 会在四个角上错开。半径还要按条身尺寸夹住（`Skin.clampRadius`），条拉扁了圆角不收会把遮罩拉变形。
+- **高光带按对角线取长度。** 斜着扫的带子如果只有条高的两倍，条一拉长就盖不满对角线，扫过去是一块方的。
+- **部件文字全部 `lineLimit(1).fixedSize()`。** 跑马灯容器有宽度约束，不锁单行的话长文本会折成好几行堆成方块。
+- **空格不要画成字符。** 七段把空格画成全暗的 8、翻页牌画成一块空牌，数字前面就挂个鬼影。
 - **交互全走 AppKit。** 拖动、缩放、hover、工具条命中都在 `MaskRootView` 里算，`NSHostingView` 的 `hitTest` 返回 nil。浮动面板在非激活状态下这样最稳。
 - **条身四周留 24pt 透明边**（`maskPad`）给外发光和阴影，否则窗口正好等于条身，阴影全被裁掉。`config.frame` 存的是条身，面板比它四周各大 24pt。
 - 面板 level 用 `.screenSaver` + `canJoinAllSpaces` + `fullScreenAuxiliary`，才能浮在别的 App 的全屏视频上。设置里可以降回 `.floating`。

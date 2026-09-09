@@ -166,6 +166,12 @@ struct Skin: Codable, Identifiable, Equatable {
     var effectSpeed: Double = 1.0
 
     var innerHighlight: Double = 0.35
+
+    /// 条被拉扁时圆角要跟着收，不然玻璃遮罩会被拉变形
+    static func clampRadius(_ r: Double, _ size: CGSize) -> CGFloat {
+        let limit = min(size.width, size.height) / 2
+        return max(0, min(CGFloat(r), limit))
+    }
 }
 
 // MARK: - 遮挡条
@@ -259,6 +265,7 @@ final class Store: ObservableObject {
     @Published var activeMaskID: UUID? = nil
 
     private var loading = false
+    private var needsSave = false
 
     private var dir: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -270,7 +277,10 @@ final class Store: ObservableObject {
     private struct StateFile: Codable {
         var masks: [MaskConfig]
         var settings: GlobalSettings
+        var version: Int? = nil
     }
+
+    static let stateVersion = 2
 
     private init() {
         load()
@@ -326,16 +336,25 @@ final class Store: ObservableObject {
         if let data = try? Data(contentsOf: stateURL),
            let state = try? JSONDecoder().decode(StateFile.self, from: data) {
             settings = state.settings
+            let stale = (state.version ?? 1) < Store.stateVersion
             masks = state.masks.map { m in
                 var m = m
                 if !skins.contains(where: { $0.id == m.skinID }) { m.skinID = skins[0].id }
+                // 老存档里的部件是早期那套（只有一个时钟），换成现在的默认组合
+                if stale && m.widgets.count <= 1 { m.widgets = MaskWidget.defaultSet }
                 return m
             }
+            needsSave = stale
         }
         if masks.isEmpty {
             masks = [defaultMask()]
         }
         activeMaskID = masks.first?.id
+        if needsSave {
+            needsSave = false
+            loading = false
+            save()
+        }
     }
 
     func defaultMask() -> MaskConfig {
@@ -358,7 +377,7 @@ final class Store: ObservableObject {
         if let d = try? enc.encode(skins.filter { !$0.builtIn }) {
             try? d.write(to: skinsURL, options: .atomic)
         }
-        if let d = try? enc.encode(StateFile(masks: masks, settings: settings)) {
+        if let d = try? enc.encode(StateFile(masks: masks, settings: settings, version: Store.stateVersion)) {
             try? d.write(to: stateURL, options: .atomic)
         }
     }

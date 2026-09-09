@@ -1,0 +1,215 @@
+#!/bin/bash
+# 影幕 Kagemaku 服务控制台
+# 装好之后直接敲 kagemaku <子命令>
+set -uo pipefail
+
+REPO="__REPO__"
+LABEL="app.shinkolab.kagemaku"
+APP="/Applications/Kagemaku.app"
+BIN="$APP/Contents/MacOS/Kagemaku"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+LOGDIR="$HOME/Library/Logs/Kagemaku"
+DATA="$HOME/Library/Application Support/Kagemaku"
+CLI="$HOME/.local/bin/kagemaku"
+DOMAIN="gui/$(id -u)"
+
+die() { echo "kagemaku: $*" >&2; exit 1; }
+
+pid_of() { pgrep -f "^$BIN$" 2>/dev/null | head -1; }
+
+is_loaded() { launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; }
+
+need_app() { [ -x "$BIN" ] || die "没找到 $APP，先跑 kagemaku install"; }
+
+write_plist() {
+    mkdir -p "$HOME/Library/LaunchAgents" "$LOGDIR"
+    sed "s|__HOME__|$HOME|g" "$REPO/launchagents/$LABEL.plist.template" > "$PLIST"
+}
+
+app_version() {
+    /usr/bin/defaults read "$APP/Contents/Info" CFBundleShortVersionString 2>/dev/null || echo "?"
+}
+
+# ---------- 子命令 ----------
+
+cmd_up() {
+    need_app
+    write_plist
+    launchctl bootout "$DOMAIN/$LABEL" >/dev/null 2>&1
+    pkill -f "^$BIN$" >/dev/null 2>&1
+    sleep 0.4
+    launchctl bootstrap "$DOMAIN" "$PLIST" || die "launchctl bootstrap 失败"
+    launchctl kickstart -k "$DOMAIN/$LABEL" >/dev/null 2>&1
+    sleep 0.6
+    echo "已启动　pid $(pid_of)　登录时自动拉起"
+}
+
+cmd_down() {
+    launchctl bootout "$DOMAIN/$LABEL" >/dev/null 2>&1
+    pkill -f "^$BIN$" >/dev/null 2>&1
+    sleep 0.3
+    echo "已停止　开机自启已撤销"
+}
+
+cmd_restart() {
+    need_app
+    if is_loaded; then
+        launchctl kickstart -k "$DOMAIN/$LABEL" >/dev/null 2>&1
+        sleep 0.6
+        echo "已重启　pid $(pid_of)"
+    else
+        cmd_up
+    fi
+}
+
+cmd_status() {
+    local pid state auto ver
+    pid="$(pid_of)"
+    if [ -n "$pid" ]; then state="running"; else state="stopped"; fi
+    if is_loaded; then auto="on"; else auto="off"; fi
+    ver="$(app_version)"
+
+    printf "%-12s %-10s %-8s %-8s %s\n" "SERVICE" "STATE" "PID" "AUTO" "VERSION"
+    printf "%-12s %-10s %-8s %-8s %s\n" "kagemaku" "$state" "${pid:--}" "$auto" "$ver"
+    echo
+
+    if [ ! -x "$BIN" ]; then
+        echo "  app 没装：$APP 不存在"
+        return 0
+    fi
+
+    if [ -f "$DATA/state.json" ]; then
+        /usr/bin/python3 - "$DATA/state.json" <<'PY'
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception as e:
+    print("  读不了 state.json:", e); sys.exit(0)
+masks = d.get("masks", [])
+modes = {0: "手动", 1: "跟随窗口", 2: "自动吸附"}
+styles = {"nixie":"辉光管","splitflap":"翻页牌","dotmatrix":"点阵","seg7":"数码管","neon":"霓虹","plain":"简约"}
+kinds = {"clock":"时间","date":"日期","quote":"行情","weather":"天气","news":"新闻","text":"文字"}
+print("  遮挡条 %d 条" % len(masks))
+for m in masks:
+    fr = m.get("frame", [[0,0],[0,0]])
+    (x, y), (w, h) = fr[0], fr[1]
+    flags = []
+    if m.get("locked"): flags.append("锁定")
+    if m.get("hidden"): flags.append("隐藏")
+    ws = m.get("widgets", [])
+    parts = ["%s/%s" % (kinds.get(x.get("kind"), x.get("kind")), styles.get(x.get("style"), x.get("style")))
+             for x in ws if x.get("enabled", True)]
+    print("    %-10s %4dx%-4d @ %d,%d　%s　不透明 %d%%%s"
+          % (m.get("label", "?"), w, h, x, y,
+             modes.get(m.get("trackMode", 0), "?"),
+             round(m.get("opacity", 1) * 100),
+             ("　" + " ".join(flags)) if flags else ""))
+    if parts:
+        print("      部件 " + "　".join(parts))
+s = d.get("settings", {})
+print("  浮在全屏之上 %s　贴边吸附 %s　动效 %s"
+      % ("是" if s.get("aboveFullscreen", True) else "否",
+         "是" if s.get("snapEdges", True) else "否",
+         "关" if s.get("reduceMotion") else "开"))
+PY
+    else
+        echo "  还没有存档，遮挡条用的是默认位置"
+    fi
+
+    echo
+    echo "  日志 $LOGDIR"
+    echo "  数据 $DATA"
+}
+
+cmd_logs() {
+    mkdir -p "$LOGDIR"
+    touch "$LOGDIR/kagemaku.out.log" "$LOGDIR/kagemaku.err.log"
+    if [ "${1:-}" = "-f" ]; then
+        tail -n 40 -F "$LOGDIR/kagemaku.out.log" "$LOGDIR/kagemaku.err.log"
+    else
+        tail -n 80 "$LOGDIR/kagemaku.out.log" "$LOGDIR/kagemaku.err.log"
+    fi
+}
+
+cmd_build() {
+    [ -d "$REPO" ] || die "找不到源码目录 $REPO"
+    bash "$REPO/scripts/build-app.sh"
+}
+
+cmd_reload() {
+    cmd_build
+    cmd_restart
+}
+
+cmd_install() {
+    [ -d "$REPO" ] || die "找不到源码目录 $REPO"
+    bash "$REPO/scripts/install.sh"
+}
+
+cmd_uninstall() {
+    cmd_down
+    rm -f "$PLIST"
+    rm -rf "$APP"
+    if [ "${1:-}" = "--purge" ]; then
+        rm -rf "$DATA" "$LOGDIR"
+        echo "皮肤、遮挡条、日志一并删掉了"
+    else
+        echo "数据留着：$DATA（要一起删加 --purge）"
+    fi
+    rm -f "$CLI"
+    echo "卸载完成"
+}
+
+cmd_doctor() {
+    echo "源码目录     $REPO $([ -d "$REPO" ] && echo OK || echo 缺失)"
+    echo "swiftc       $(command -v swiftc >/dev/null && swiftc --version 2>/dev/null | head -1 || echo 缺失)"
+    echo "App          $APP $([ -x "$BIN" ] && echo OK || echo 缺失)"
+    echo "版本         $(app_version)"
+    echo "签名         $(codesign -dv "$APP" 2>&1 | grep -m1 'Signature\|adhoc' || echo 未签名)"
+    echo "LaunchAgent  $PLIST $([ -f "$PLIST" ] && echo OK || echo 缺失)　载入 $(is_loaded && echo yes || echo no)"
+    local p; p="$(pid_of)"
+    echo "进程         ${p:-未运行}"
+    echo "日志目录     $LOGDIR $([ -d "$LOGDIR" ] && echo OK || echo 缺失)"
+    echo "数据目录     $DATA $([ -d "$DATA" ] && echo OK || echo 缺失)"
+    echo
+    echo "屏幕录制授权只有开「自动吸附字幕」才需要，在系统设置 - 隐私与安全性 - 屏幕录制里看。"
+    echo "重新编译后签名指纹会变，那条授权可能要重新勾一次。"
+}
+
+cmd_open() {
+    open "$DATA"
+}
+
+usage() {
+    cat <<'USAGE'
+影幕 Kagemaku 服务控制台
+
+  kagemaku up            启动并挂到登录自启
+  kagemaku down          停掉并撤销自启
+  kagemaku restart       重启
+  kagemaku status        看状态：进程、版本、遮挡条、部件、设置
+  kagemaku logs [-f]     看日志，-f 跟着刷
+  kagemaku build         只重新编译，不重启
+  kagemaku reload        重新编译并重启（改完代码用这个）
+  kagemaku install       编译 + 装 CLI + 挂自启
+  kagemaku uninstall     卸载，加 --purge 连数据一起删
+  kagemaku doctor        自检：工具链、签名、路径、授权提示
+  kagemaku open          打开数据目录
+USAGE
+}
+
+case "${1:-status}" in
+    up|start)    cmd_up ;;
+    down|stop)   cmd_down ;;
+    restart)     cmd_restart ;;
+    status|ps)   cmd_status ;;
+    logs|log)    shift; cmd_logs "${1:-}" ;;
+    build)       cmd_build ;;
+    reload)      cmd_reload ;;
+    install)     cmd_install ;;
+    uninstall)   shift; cmd_uninstall "${1:-}" ;;
+    doctor)      cmd_doctor ;;
+    open)        cmd_open ;;
+    -h|--help|help) usage ;;
+    *)           echo "不认识的子命令：$1"; echo; usage; exit 1 ;;
+esac

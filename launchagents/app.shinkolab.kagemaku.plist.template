@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>app.shinkolab.kagemaku</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Applications/Kagemaku.app/Contents/MacOS/Kagemaku</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <!-- 崩溃了自动拉起；从菜单栏正常退出（exit 0）就让它待着 -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+    <key>StandardOutPath</key>
+    <string>__HOME__/Library/Logs/Kagemaku/kagemaku.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/Library/Logs/Kagemaku/kagemaku.err.log</string>
+</dict>
+</plist>

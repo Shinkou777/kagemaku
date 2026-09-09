@@ -17,21 +17,21 @@ enum SkinPresets {
         s.blur = true
         s.material = .hud
         s.appearance = .dark
-        s.blurSaturation = 1.05
-        s.tintTop = RGBA(hex: "#EAF2FF", alpha: 0.10)
-        s.tintBottom = RGBA(hex: "#7C8CA8", alpha: 0.04)
-        s.gradientAngle = 100
-        s.cornerRadius = 18
+        s.blurSaturation = 1.0
+        s.tintTop = RGBA(hex: "#111725", alpha: 0.56)
+        s.tintBottom = RGBA(hex: "#080A11", alpha: 0.70)
+        s.gradientAngle = 96
+        s.cornerRadius = 16
         s.borderWidth = 1
-        s.borderTop = RGBA(hex: "#FFFFFF", alpha: 0.38)
-        s.borderBottom = RGBA(hex: "#FFFFFF", alpha: 0.06)
-        s.glowRadius = 24
-        s.glowColor = RGBA(hex: "#000000", alpha: 0.5)
+        s.borderTop = RGBA(hex: "#FFFFFF", alpha: 0.34)
+        s.borderBottom = RGBA(hex: "#FFFFFF", alpha: 0.05)
+        s.glowRadius = 26
+        s.glowColor = RGBA(hex: "#000000", alpha: 0.55)
         s.effect = .shimmer
-        s.effectColor = RGBA(hex: "#FFFFFF", alpha: 0.45)
-        s.effectIntensity = 0.28
-        s.effectSpeed = 0.55
-        s.innerHighlight = 0.42
+        s.effectColor = RGBA(hex: "#DCE8FF", alpha: 0.5)
+        s.effectIntensity = 0.22
+        s.effectSpeed = 0.5
+        s.innerHighlight = 0.34
         return s
     }
 
@@ -72,8 +72,8 @@ enum SkinPresets {
         s.material = .hud
         s.appearance = .dark
         s.blurSaturation = 1.2
-        s.tintTop = RGBA(hex: "#0B1026", alpha: 0.5)
-        s.tintBottom = RGBA(hex: "#160A2B", alpha: 0.58)
+        s.tintTop = RGBA(hex: "#0B1026", alpha: 0.62)
+        s.tintBottom = RGBA(hex: "#160A2B", alpha: 0.72)
         s.gradientAngle = 90
         s.cornerRadius = 22
         s.borderWidth = 1
@@ -152,8 +152,8 @@ enum SkinPresets {
         s.material = .popover
         s.appearance = .light
         s.blurSaturation = 1.1
-        s.tintTop = RGBA(hex: "#FFFFFF", alpha: 0.42)
-        s.tintBottom = RGBA(hex: "#E7ECF5", alpha: 0.3)
+        s.tintTop = RGBA(hex: "#FFFFFF", alpha: 0.72)
+        s.tintBottom = RGBA(hex: "#DDE3EF", alpha: 0.62)
         s.gradientAngle = 90
         s.cornerRadius = 20
         s.borderWidth = 1
@@ -179,8 +179,8 @@ enum SkinPresets {
         s.material = .fullScreenUI
         s.appearance = .system
         s.blurSaturation = 1.8
-        s.tintTop = RGBA(hex: "#FFFFFF", alpha: 0.04)
-        s.tintBottom = RGBA(hex: "#000000", alpha: 0.10)
+        s.tintTop = RGBA(hex: "#FFFFFF", alpha: 0.06)
+        s.tintBottom = RGBA(hex: "#000000", alpha: 0.22)
         s.gradientAngle = 90
         s.cornerRadius = 12
         s.borderWidth = 1

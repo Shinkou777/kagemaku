@@ -94,7 +94,7 @@ struct MaskWidget: Codable, Identifiable, Equatable {
         case .news:
             w.style = .dotmatrix; w.align = 1; w.size = 16
             w.color = RGBA(hex: "#FFD166"); w.marquee = true
-            w.source = "https://www.nhk.or.jp/rss/news/cat0.xml"
+            w.source = "https://www3.nhk.or.jp/rss/news/cat0.xml"
         case .text:
             w.style = .neon; w.align = 1; w.size = 20
             w.color = RGBA(hex: "#FF4FA3"); w.source = "聴き取れるまで、開けない"
@@ -102,7 +102,30 @@ struct MaskWidget: Codable, Identifiable, Equatable {
         return w
     }
 
-    static var defaultSet: [MaskWidget] { [make(.clock)] }
+    /// 开箱就有东西看：左边日期加行情，中间新闻滚，右边天气加时间
+    static var defaultSet: [MaskWidget] {
+        var date = make(.date)
+        date.align = 0; date.style = .splitflap; date.size = 16
+        date.format = "MM/dd EEE"; date.color = RGBA(hex: "#EDEFF5")
+
+        var quote = make(.quote)
+        quote.align = 0; quote.style = .seg7; quote.size = 17
+        quote.label = "日経"; quote.source = "^N225"; quote.color = RGBA(hex: "#5CFF9D")
+
+        var news = make(.news)
+        news.align = 1; news.style = .dotmatrix; news.size = 15
+        news.marquee = true; news.color = RGBA(hex: "#FFC24C")
+
+        var weather = make(.weather)
+        weather.align = 2; weather.style = .plain; weather.size = 15
+        weather.source = "Tokyo"; weather.color = RGBA(hex: "#9FE8FF")
+
+        var clock = make(.clock)
+        clock.align = 2; clock.style = .nixie; clock.size = 24
+        clock.color = RGBA(hex: "#FFA24C")
+
+        return [date, quote, news, weather, clock]
+    }
 }
 
 // MARK: - 数据源
@@ -207,7 +230,8 @@ final class DataHub: ObservableObject {
         let prev = (meta["chartPreviousClose"] as? Double)
             ?? (meta["previousClose"] as? Double) ?? price
         let cur = (meta["currency"] as? String) ?? ""
-        let pct = prev > 0 ? (price - prev) / prev * 100 : 0
+        let pct = (meta["regularMarketChangePercent"] as? Double)
+            ?? (prev > 0 ? (price - prev) / prev * 100 : 0)
         return Quote(symbol: symbol, price: price, changePct: pct, currency: cur)
     }
 
@@ -326,6 +350,12 @@ final class FeedParser: NSObject, XMLParserDelegate {
 enum WidgetText {
 
     static func value(_ w: MaskWidget, now: Date, hub: DataHub) -> String {
+        let raw = build(w, now: now, hub: hub)
+        // 七段管子画不出逗号，挤在一起反而看不清
+        return w.style == .seg7 ? raw.replacingOccurrences(of: ",", with: "") : raw
+    }
+
+    private static func build(_ w: MaskWidget, now: Date, hub: DataHub) -> String {
         let body: String
         switch w.kind {
         case .clock:

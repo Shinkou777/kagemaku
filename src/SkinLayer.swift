@@ -151,13 +151,20 @@ struct EffectLayer: View {
     // 流光
     private var shimmer: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: frozen)) { ctx in
-            let p = frozen ? 0.35 : phase(ctx, cycle: 6.0)
-            let bandW = max(80, size.width * 0.28)
-            LinearGradient(colors: [.clear, skin.effectColor.color.opacity(skin.effectIntensity * 1.25), .clear],
+            let raw = frozen ? 0.35 : phase(ctx, cycle: 7.0)
+            // 前 40% 扫过去，后面歇着，免得一直在闪
+            let p = min(1.0, raw / 0.4)
+            let bandW = min(max(70, size.width * 0.13), 200)
+            let travel = size.width + bandW * 2
+            LinearGradient(colors: [.clear,
+                                    skin.effectColor.color.opacity(skin.effectIntensity * 0.35),
+                                    skin.effectColor.color.opacity(skin.effectIntensity * 1.3),
+                                    skin.effectColor.color.opacity(skin.effectIntensity * 0.35),
+                                    .clear],
                            startPoint: .leading, endPoint: .trailing)
-                .frame(width: bandW, height: size.height * 2.2)
-                .rotationEffect(.degrees(18))
-                .offset(x: -size.width / 2 - bandW + p * (size.width + bandW * 2))
+                .frame(width: bandW, height: hypot(size.width, size.height) * 1.25)
+                .rotationEffect(.degrees(16))
+                .offset(x: -size.width / 2 - bandW + p * travel)
         }
     }
 
@@ -236,10 +243,10 @@ struct SkinLayer: View {
         GeometryReader { geo in
             let s = geo.size
             ZStack {
-                base
+                base(s)
                 EffectLayer(skin: skin, size: s, reduceMotion: reduceMotion)
-                    .clipShape(shape)
-                stroke
+                    .clipShape(shape(s))
+                stroke(s)
             }
             .compositingGroup()
             .opacity(opacity)
@@ -247,11 +254,13 @@ struct SkinLayer: View {
         }
     }
 
-    private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: skin.cornerRadius, style: .continuous)
+    /// 玻璃层用 NSBezierPath 画圆角（正圆弧），这里必须同一种曲线，
+    /// 否则四个角上玻璃和描边错开，边缘看着发怪
+    private func shape(_ s: CGSize) -> RoundedRectangle {
+        RoundedRectangle(cornerRadius: Skin.clampRadius(skin.cornerRadius, s), style: .circular)
     }
 
-    private var base: some View {
+    private func base(_ sz: CGSize) -> some View {
         let pts = gradientPoints(skin.gradientAngle)
         return ZStack {
             if preview && skin.blur {
@@ -269,17 +278,17 @@ struct SkinLayer: View {
             }
             .allowsHitTesting(false)
         }
-        .clipShape(shape)
+        .clipShape(shape(sz))
     }
 
-    private var stroke: some View {
+    private func stroke(_ sz: CGSize) -> some View {
         TimelineView(.animation(minimumInterval: 1.0 / 24.0,
                                 paused: reduceMotion || skin.effect != .pulse)) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate * max(0.05, skin.effectSpeed)
             let breathe = skin.effect == .pulse && !reduceMotion
                 ? 0.55 + 0.45 * (0.5 + 0.5 * sin(t * 1.6))
                 : 1.0
-            shape
+            shape(sz)
                 .strokeBorder(LinearGradient(colors: [skin.borderTop.color, skin.borderBottom.color],
                                              startPoint: .topLeading, endPoint: .bottomTrailing),
                               lineWidth: skin.borderWidth)

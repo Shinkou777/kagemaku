@@ -42,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func rebuildControllers() {
         for c in controllers { c.close() }
         controllers = store.masks.map { MaskController(config: $0, app: self) }
+        rescueOffscreen()
     }
 
     func controller(_ id: UUID) -> MaskController? {
@@ -93,6 +94,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             c.syncBlur(animated: false)
         }
         DataHub.shared.register(store.masks.flatMap { $0.widgets })
+    }
+
+    /// 摆回当前屏幕中下方，条被拖出屏幕时用
+    func resetPosition(_ c: MaskController) {
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+        let f = screen.frame
+        let w = min(1000, f.width * 0.62)
+        let h = max(60, min(160, c.config.frame.height))
+        c.setFrame(CGRect(x: f.midX - w / 2, y: f.minY + f.height * 0.11, width: w, height: h))
+        if c.config.trackMode == .window { c.recomputeAnchor() }
+    }
+
+    /// 完全飘到屏幕外的条拉回来
+    private func rescueOffscreen() {
+        for c in controllers {
+            let f = c.config.frame
+            let visible = NSScreen.screens.contains { $0.frame.intersection(f).width > 120 }
+            if !visible { resetPosition(c) }
+        }
     }
 
     func refreshAll() {
@@ -157,6 +177,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let opacityItem = NSMenuItem(title: "不透明度 \(Int(active.config.opacity * 100))%", action: nil, keyEquivalent: "")
             opacityItem.submenu = opacityMenu(for: active)
             menu.addItem(opacityItem)
+
+            add(menu, "摆回屏幕中下方", #selector(menuResetPos))
 
             if controllers.count > 1 {
                 let pick = NSMenuItem(title: "切换到", action: nil, keyEquivalent: "")
@@ -266,6 +288,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: 菜单动作
 
     @objc private func menuAddMask() { addMask() }
+
+    @objc private func menuResetPos() {
+        if let c = activeController { resetPosition(c) }
+    }
     @objc private func menuSettings() { openSettings() }
     @objc private func menuQuit() { NSApp.terminate(nil) }
 
@@ -370,6 +396,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         m.addItem(.separator())
 
+        let reset = NSMenuItem(title: "摆回屏幕中下方", action: #selector(ctxReset(_:)), keyEquivalent: "")
+        reset.target = self
+        reset.representedObject = c.config.id
+        m.addItem(reset)
+
         let dup = NSMenuItem(title: "复制一条", action: #selector(menuAddMask), keyEquivalent: "")
         dup.target = self
         m.addItem(dup)
@@ -395,6 +426,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func ctxHide(_ s: NSMenuItem) {
         guard let id = s.representedObject as? UUID, let c = controller(id) else { return }
         c.setHidden(true)
+    }
+
+    @objc private func ctxReset(_ s: NSMenuItem) {
+        guard let id = s.representedObject as? UUID, let c = controller(id) else { return }
+        resetPosition(c)
     }
 
     @objc private func ctxRemove(_ s: NSMenuItem) {
