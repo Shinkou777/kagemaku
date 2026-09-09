@@ -208,7 +208,7 @@ struct DotMatrixView: View {
     private var font: Font {
         .system(size: size, weight: .bold, design: .monospaced)
     }
-    private var pitch: CGFloat { max(2.0, size * 0.135) }
+    private var pitch: CGFloat { max(1.8, size * 0.108) }
 
     var body: some View {
         Text(text)
@@ -431,63 +431,145 @@ struct MarqueeBox<Content: View>: View {
             let span = contentWidth + containerWidth * 0.5
             let t = ctx.date.timeIntervalSinceReferenceDate * speed
             let x = containerWidth - CGFloat(t.truncatingRemainder(dividingBy: max(1, span)))
-            content.offset(x: x)
+            content.fixedSize().offset(x: x)
         }
         .frame(width: containerWidth, alignment: .leading)
         .clipped()
+        .mask(
+            LinearGradient(stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .black, location: 0.045),
+                .init(color: .black, location: 0.955),
+                .init(color: .clear, location: 1),
+            ], startPoint: .leading, endPoint: .trailing)
+        )
     }
 }
 
 // MARK: - 单个部件
+//
+// 每个部件都是同一个结构：注记行 + 数值行。
+// 注记行高度固定，所以整条上所有数值压在同一条基线轴上。
 
 struct WidgetView: View {
     let widget: MaskWidget
-    let text: String
-    let containerWidth: CGFloat
+    let parts: WidgetParts
+    let r: ResolvedWidget
+    /// 全条统一的数值行高度，保证不同装置的读数落在同一条轴上
+    let rowHeight: CGFloat
+    /// 跑马灯跑道宽度，由外面按量出来的左右簇宽度算好
+    let marqueeWidth: CGFloat
+
+    private var gap: CGFloat { r.captionSize * 0.5 }
 
     var body: some View {
-        if widget.marquee {
-            MarqueeBox(containerWidth: max(90, containerWidth),
-                       contentWidth: WidgetView.width(widget, text),
-                       speed: 46) {
-                styled
+        VStack(alignment: .leading, spacing: r.captionSize * 0.24) {
+            captionRow
+            valueRow.frame(height: rowHeight, alignment: .center)
+        }
+    }
+
+    private var captionRow: some View {
+        Text(parts.caption)
+            .font(.system(size: r.captionSize, weight: .semibold, design: .rounded))
+            .tracking(r.captionSize * 0.09)
+            .textCase(.uppercase)
+            .foregroundStyle(r.dim)
+            .lineLimit(1)
+            .fixedSize()
+            .frame(height: r.captionSize * 1.25, alignment: .leading)
+            .opacity(parts.caption.isEmpty ? 0 : 1)
+    }
+
+    private var valueRow: some View {
+        HStack(alignment: .center, spacing: gap) {
+            if widget.marquee {
+                MarqueeBox(containerWidth: max(120, marqueeWidth),
+                           contentWidth: WidgetView.deviceWidth(r, parts.value),
+                           speed: 46) {
+                    device(parts.value)
+                }
+            } else {
+                device(parts.value)
             }
-        } else {
-            styled
+            if !parts.suffix.isEmpty { suffixText }
+            if !parts.delta.isEmpty { deltaText }
         }
     }
 
-    @ViewBuilder
-    private var styled: some View {
-        rendered.lineLimit(1).fixedSize()
+    private var suffixText: some View {
+        Text(parts.suffix)
+            .font(.system(size: r.captionSize * 1.2, weight: .medium, design: .rounded))
+            .foregroundStyle(r.dim)
+            .lineLimit(1)
+            .fixedSize()
+    }
+
+    private var deltaText: some View {
+        Text(parts.delta)
+            .font(.system(size: r.captionSize * 1.18, weight: .semibold, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(parts.deltaUp ? r.up : r.down)
+            .lineLimit(1)
+            .fixedSize()
+    }
+
+    private func device(_ text: String) -> some View {
+        deviceBody(text).lineLimit(1).fixedSize()
     }
 
     @ViewBuilder
-    private var rendered: some View {
-        let c = widget.color.color
-        switch widget.style {
-        case .nixie: NixieView(text: text, size: widget.size, color: c)
-        case .splitflap: SplitFlapView(text: text, size: widget.size, color: c)
-        case .dotmatrix: DotMatrixView(text: text, size: widget.size, color: c)
-        case .seg7: Seg7View(text: text, size: widget.size, color: c)
-        case .neon: NeonTextView(text: text, size: widget.size, color: c)
-        case .plain: PlainTextView(text: text, size: widget.size, color: c)
+    private func deviceBody(_ text: String) -> some View {
+        // 七段管画不出千分位逗号，挤在一起反而看不清
+        let t = r.style == .seg7 ? text.replacingOccurrences(of: ",", with: "") : text
+        switch r.style {
+        case .nixie: NixieView(text: t, size: r.size, color: r.ink)
+        case .splitflap: SplitFlapView(text: t, size: r.size, color: r.ink)
+        case .dotmatrix: DotMatrixView(text: t, size: r.size, color: r.ink)
+        case .seg7: Seg7View(text: t, size: r.size, color: r.ink)
+        case .neon: NeonTextView(text: t, size: r.size, color: r.ink)
+        case .plain: PlainTextView(text: t, size: r.size, color: r.ink)
         }
     }
 
-    static func width(_ w: MaskWidget, _ text: String) -> CGFloat {
-        let n = CGFloat(text.count)
-        switch w.style {
-        case .nixie: return n * (w.size * 0.80 + w.size * 0.07)
-        case .splitflap: return n * (w.size * 0.80 + w.size * 0.09)
-        case .seg7: return n * (w.size * 0.66 + w.size * 0.19)
+    /// 装置本体的宽度，用来算跑马灯跑道和分配空间
+    static func deviceWidth(_ r: ResolvedWidget, _ text: String) -> CGFloat {
+        let t = r.style == .seg7 ? text.replacingOccurrences(of: ",", with: "") : text
+        let n = CGFloat(t.count)
+        switch r.style {
+        case .nixie: return n * (r.size * 0.80 + r.size * 0.07)
+        case .splitflap: return n * (r.size * 0.80 + r.size * 0.09)
+        case .seg7: return n * (r.size * 0.66 + r.size * 0.19)
         case .dotmatrix:
-            let f = NSFont.monospacedSystemFont(ofSize: w.size, weight: .bold)
-            return (text as NSString).size(withAttributes: [.font: f]).width + w.size * 0.52
+            let f = NSFont.monospacedSystemFont(ofSize: r.size, weight: .bold)
+            return (t as NSString).size(withAttributes: [.font: f]).width + r.size * 0.52
         default:
-            let f = NSFont.monospacedSystemFont(ofSize: w.size, weight: .medium)
-            return (text as NSString).size(withAttributes: [.font: f]).width + w.size * 0.3
+            let f = NSFont.monospacedSystemFont(ofSize: r.size, weight: .medium)
+            return (t as NSString).size(withAttributes: [.font: f]).width + r.size * 0.3
         }
+    }
+
+    /// 装置本体占的高度，用来算全条统一的数值行高
+    static func deviceHeight(_ style: WidgetStyle, _ size: CGFloat) -> CGFloat {
+        switch style {
+        case .nixie: return size * 1.52
+        case .splitflap: return size * 1.44
+        case .seg7: return size * 1.22
+        case .dotmatrix: return size * 1.40
+        case .neon, .plain: return size * 1.30
+        }
+    }
+
+    static func totalWidth(_ r: ResolvedWidget, _ p: WidgetParts) -> CGFloat {
+        var w = deviceWidth(r, p.value)
+        let cap = NSFont.systemFont(ofSize: r.captionSize * 1.2, weight: .medium)
+        if !p.suffix.isEmpty {
+            w += (p.suffix as NSString).size(withAttributes: [.font: cap]).width + r.captionSize * 0.5
+        }
+        if !p.delta.isEmpty {
+            w += (p.delta as NSString).size(withAttributes: [.font: cap]).width + r.captionSize * 0.5
+        }
+        return w
     }
 }
 
@@ -495,6 +577,7 @@ struct WidgetView: View {
 
 struct WidgetLayer: View {
     let widgets: [MaskWidget]
+    let themeID: String
     let opacity: Double
     @ObservedObject private var hub = DataHub.shared
 
@@ -504,49 +587,64 @@ struct WidgetLayer: View {
                 content(geo.size, ctx.date)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
         .opacity(opacity)
         .allowsHitTesting(false)
     }
 
     private func content(_ size: CGSize, _ now: Date) -> some View {
-        let texts = resolved(now)
-        return ZStack {
-            group(0, .leading, size, texts)
-            group(1, .center, size, texts)
-            group(2, .trailing, size, texts)
-        }
-    }
-
-    private func resolved(_ now: Date) -> [UUID: String] {
-        var m: [UUID: String] = [:]
+        let theme = DeviceTheme.by(themeID)
+        let h = size.height
+        var resolved: [UUID: (WidgetParts, ResolvedWidget)] = [:]
         for w in widgets where w.enabled {
-            m[w.id] = WidgetText.value(w, now: now, hub: hub)
+            resolved[w.id] = (WidgetText.parts(w, now: now, hub: hub),
+                              WidgetResolver.resolve(w, theme: theme, contentHeight: h))
         }
-        return m
+        let unit = WidgetRole.caption.size(in: h, scale: 1)
+        let rowH = resolved.values
+            .map { WidgetView.deviceHeight($0.1.style, $0.1.size) }
+            .max() ?? unit * 2
+
+        let gap = unit * 2
+        let leftW = zoneWidth(0, resolved, unit)
+        let rightW = zoneWidth(2, resolved, unit)
+        let centerW = max(120, size.width - leftW - rightW - gap * 4)
+
+        return HStack(spacing: gap) {
+            zone(0, .leading, resolved, unit, rowH, centerW).frame(width: leftW, alignment: .leading)
+            zone(1, .center, resolved, unit, rowH, centerW).frame(width: centerW, alignment: .center)
+            zone(2, .trailing, resolved, unit, rowH, centerW).frame(width: rightW, alignment: .trailing)
+        }
+        .frame(maxHeight: .infinity, alignment: .center)
     }
 
-    private func group(_ align: Int, _ alignment: Alignment, _ size: CGSize,
-                       _ texts: [UUID: String]) -> some View {
+    /// 一簇里非跑马灯部件量出来的总宽
+    private func zoneWidth(_ align: Int,
+                           _ resolved: [UUID: (WidgetParts, ResolvedWidget)],
+                           _ unit: CGFloat) -> CGFloat {
+        let list = widgets.filter { $0.enabled && $0.align == align && !$0.marquee }
+        guard !list.isEmpty else { return 0 }
+        var w: CGFloat = 0
+        for item in list {
+            guard let (p, r) = resolved[item.id] else { continue }
+            w += WidgetView.totalWidth(r, p)
+        }
+        return w + unit * 1.6 * CGFloat(list.count - 1)
+    }
+
+    private func zone(_ align: Int, _ alignment: Alignment,
+                      _ resolved: [UUID: (WidgetParts, ResolvedWidget)],
+                      _ unit: CGFloat, _ rowH: CGFloat, _ centerW: CGFloat) -> some View {
         let list = widgets.filter { $0.enabled && $0.align == align }
-        return HStack(spacing: 12) {
+        return HStack(alignment: .top, spacing: unit * 1.6) {
             ForEach(list) { w in
-                WidgetView(widget: w,
-                           text: texts[w.id] ?? "",
-                           containerWidth: room(w, size, texts))
+                if let (p, r) = resolved[w.id] {
+                    WidgetView(widget: w, parts: p, r: r, rowHeight: rowH,
+                               marqueeWidth: centerW)
+                }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
-    }
-
-    /// 跑马灯能占多宽：整条减掉别的部件实际量出来的宽度
-    private func room(_ w: MaskWidget, _ size: CGSize, _ texts: [UUID: String]) -> CGFloat {
-        var used: CGFloat = 0
-        for other in widgets where other.enabled && other.id != w.id {
-            if other.marquee { continue }
-            used += WidgetView.width(other, texts[other.id] ?? "") + 12
-        }
-        return max(120, size.width - 28 - used)
+        .frame(alignment: alignment)
     }
 }

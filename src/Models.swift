@@ -220,6 +220,8 @@ struct MaskConfig: Codable, Identifiable, Equatable {
 
     /// 条身上叠的显示部件
     var widgets: [MaskWidget] = MaskWidget.defaultSet
+    /// 装置主题：一条只用一个显示家族
+    var themeID: String = DeviceTheme.departure.id
 }
 
 // MARK: - 全局设置
@@ -280,7 +282,7 @@ final class Store: ObservableObject {
         var version: Int? = nil
     }
 
-    static let stateVersion = 2
+    static let stateVersion = 4
 
     private init() {
         load()
@@ -340,8 +342,11 @@ final class Store: ObservableObject {
             masks = state.masks.map { m in
                 var m = m
                 if !skins.contains(where: { $0.id == m.skinID }) { m.skinID = skins[0].id }
-                // 老存档里的部件是早期那套（只有一个时钟），换成现在的默认组合
-                if stale && m.widgets.count <= 1 { m.widgets = MaskWidget.defaultSet }
+                // 早期版本的部件组合是没有排版系统时随手摆的，换成现在这套
+                if stale {
+                    m.widgets = MaskWidget.defaultSet
+                    m.themeID = DeviceTheme.departure.id
+                }
                 return m
             }
             needsSave = stale
@@ -443,6 +448,7 @@ extension MaskConfig {
         anchorW = c.val(.anchorW, d.anchorW)
         anchorH = c.val(.anchorH, d.anchorH)
         widgets = c.val(.widgets, d.widgets)
+        themeID = c.val(.themeID, d.themeID)
     }
 }
 

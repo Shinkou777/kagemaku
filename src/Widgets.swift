@@ -64,8 +64,11 @@ enum WidgetStyle: String, Codable, CaseIterable, Identifiable {
 struct MaskWidget: Codable, Identifiable, Equatable {
     var id: UUID = UUID()
     var kind: WidgetKind = .clock
-    var style: WidgetStyle = .nixie
     var align: Int = 2              // 0 左 1 中 2 右
+    var role: WidgetRole = .secondary
+    var scale: Double = 1.0         // 在层级字号上再微调
+    var followTheme: Bool = true    // 关掉才用下面这三个手写值
+    var style: WidgetStyle = .nixie
     var size: Double = 24
     var color: RGBA = RGBA(hex: "#FF9A3C")
     var enabled: Bool = true
@@ -80,51 +83,32 @@ struct MaskWidget: Codable, Identifiable, Equatable {
         w.kind = kind
         switch kind {
         case .clock:
-            w.style = .nixie; w.align = 2; w.size = 26
-            w.color = RGBA(hex: "#FF9A3C"); w.format = "HH:mm:ss"
+            w.align = 2; w.role = .primary; w.format = "HH:mm:ss"
         case .date:
-            w.style = .splitflap; w.align = 0; w.size = 18
-            w.color = RGBA(hex: "#EDEFF5"); w.format = "MM/dd EEE"
+            w.align = 0; w.role = .secondary; w.format = "MM/dd"
         case .quote:
-            w.style = .seg7; w.align = 0; w.size = 20
-            w.color = RGBA(hex: "#5CFF9D"); w.label = "日経"; w.source = "^N225"
+            w.align = 2; w.role = .secondary; w.label = "日経"; w.source = "^N225"
         case .weather:
-            w.style = .dotmatrix; w.align = 1; w.size = 18
-            w.color = RGBA(hex: "#7ADFFF"); w.source = "Tokyo"
+            w.align = 0; w.role = .secondary; w.source = "Tokyo"
         case .news:
-            w.style = .dotmatrix; w.align = 1; w.size = 16
-            w.color = RGBA(hex: "#FFD166"); w.marquee = true
+            w.align = 1; w.role = .secondary; w.marquee = true
             w.source = "https://www3.nhk.or.jp/rss/news/cat0.xml"
         case .text:
-            w.style = .neon; w.align = 1; w.size = 20
-            w.color = RGBA(hex: "#FF4FA3"); w.source = "聴き取れるまで、開けない"
+            w.align = 1; w.role = .secondary; w.source = "聴き取れるまで、開けない"
         }
         return w
     }
 
-    /// 开箱就有东西看：左边日期加行情，中间新闻滚，右边天气加时间
+    /// 开箱的一组：时钟是唯一的主读数，其余四个同为次级，
+    /// 层级靠时钟 1.5 倍的字号和注记的中性小字撑起来。
+    /// 左簇是环境，中间是长文跑道，右簇是仪表。
     static var defaultSet: [MaskWidget] {
-        var date = make(.date)
-        date.align = 0; date.style = .splitflap; date.size = 16
-        date.format = "MM/dd EEE"; date.color = RGBA(hex: "#EDEFF5")
-
-        var quote = make(.quote)
-        quote.align = 0; quote.style = .seg7; quote.size = 17
-        quote.label = "日経"; quote.source = "^N225"; quote.color = RGBA(hex: "#5CFF9D")
-
-        var news = make(.news)
-        news.align = 1; news.style = .dotmatrix; news.size = 15
-        news.marquee = true; news.color = RGBA(hex: "#FFC24C")
-
-        var weather = make(.weather)
-        weather.align = 2; weather.style = .plain; weather.size = 15
-        weather.source = "Tokyo"; weather.color = RGBA(hex: "#9FE8FF")
-
-        var clock = make(.clock)
-        clock.align = 2; clock.style = .nixie; clock.size = 24
-        clock.color = RGBA(hex: "#FFA24C")
-
-        return [date, quote, news, weather, clock]
+        var date = make(.date);       date.align = 0; date.role = .secondary
+        var weather = make(.weather); weather.align = 0; weather.role = .secondary
+        var news = make(.news);       news.align = 1; news.role = .secondary
+        var quote = make(.quote);     quote.align = 2; quote.role = .secondary
+        var clock = make(.clock);     clock.align = 2; clock.role = .primary
+        return [date, weather, news, quote, clock]
     }
 }
 
@@ -346,45 +330,47 @@ final class FeedParser: NSObject, XMLParserDelegate {
 
 // MARK: - 取值
 
+struct WidgetParts {
+    var caption: String = ""
+    var value: String = ""
+    var delta: String = ""
+    var deltaUp: Bool = true
+    var suffix: String = ""
+}
+
 @MainActor
 enum WidgetText {
 
-    static func value(_ w: MaskWidget, now: Date, hub: DataHub) -> String {
-        let raw = build(w, now: now, hub: hub)
-        // 七段管子画不出逗号，挤在一起反而看不清
-        return w.style == .seg7 ? raw.replacingOccurrences(of: ",", with: "") : raw
-    }
-
-    private static func build(_ w: MaskWidget, now: Date, hub: DataHub) -> String {
-        let body: String
+    static func parts(_ w: MaskWidget, now: Date, hub: DataHub) -> WidgetParts {
+        var p = WidgetParts()
+        p.caption = w.label
         switch w.kind {
         case .clock:
-            body = format(now, w.format.isEmpty ? "HH:mm:ss" : w.format)
+            p.value = format(now, w.format.isEmpty ? "HH:mm:ss" : w.format)
         case .date:
-            body = format(now, w.format.isEmpty ? "MM/dd EEE" : w.format)
+            let f = w.format.isEmpty ? "MM/dd" : w.format
+            p.value = format(now, f)
+            if !f.contains("E") { p.suffix = format(now, "EEE") }
         case .text:
-            body = w.source
+            p.value = w.source
         case .quote:
-            guard let q = hub.quotes[w.source] else { return joined(w.label, "——") }
-            let price = number(q.price)
+            if p.caption.isEmpty { p.caption = w.source }
+            guard let q = hub.quotes[w.source] else { p.value = "----"; return p }
+            p.value = number(q.price)
             if w.showChange {
-                let sign = q.changePct >= 0 ? "+" : "-"
-                body = "\(price) \(sign)\(String(format: "%.2f", abs(q.changePct)))%"
-            } else {
-                body = price
+                p.deltaUp = q.changePct >= 0
+                p.delta = String(format: "%@%.2f%%", p.deltaUp ? "+" : "-", abs(q.changePct))
             }
         case .weather:
-            guard let x = hub.weather[w.source] else { return joined(w.label, "——") }
-            body = "\(x.place) \(String(format: "%.0f", x.temp))° \(DataHub.weatherWord(x.code))"
+            guard let x = hub.weather[w.source] else { p.value = "--"; return p }
+            if p.caption.isEmpty { p.caption = x.place }
+            p.value = String(format: "%.0f°", x.temp)
+            p.suffix = DataHub.weatherWord(x.code)
         case .news:
             let list = hub.headlines[w.source] ?? []
-            body = list.isEmpty ? "——" : list.joined(separator: "　　·　　")
+            p.value = list.isEmpty ? "受信待ち" : list.joined(separator: "　　·　　")
         }
-        return joined(w.label, body)
-    }
-
-    private static func joined(_ label: String, _ body: String) -> String {
-        label.isEmpty ? body : "\(label) \(body)"
+        return p
     }
 
     private static func number(_ v: Double) -> String {

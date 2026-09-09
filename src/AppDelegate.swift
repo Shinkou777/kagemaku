@@ -70,16 +70,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func removeMask(_ c: MaskController) {
+        lastClosed = c.config
         c.close()
         controllers.removeAll { $0 === c }
         store.masks.removeAll { $0.id == c.config.id }
-        if store.masks.isEmpty {
-            let m = store.defaultMask()
-            store.masks = [m]
-            controllers = [MaskController(config: m, app: self)]
-            store.activeMaskID = m.id
-        }
+        store.activeMaskID = store.masks.first?.id
         store.save()
+        DataHub.shared.register(store.masks.flatMap { $0.widgets })
+    }
+
+    /// 关掉的最后一条，随时能放回来
+    private var lastClosed: MaskConfig?
+
+    func undoClose() {
+        guard var m = lastClosed else { return }
+        lastClosed = nil
+        m.id = UUID()
+        m.hidden = false
+        store.masks.append(m)
+        store.save()
+        let c = MaskController(config: m, app: self)
+        controllers.append(c)
+        store.activeMaskID = m.id
+        rescueOffscreen()
+        DataHub.shared.register(store.masks.flatMap { $0.widgets })
     }
 
     /// 只刷视觉，不动窗口位置和定时器（拖滑块时用）
@@ -91,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             c.model.peekOpacity = store.settings.peekOpacity
             c.model.reduceMotion = store.settings.reduceMotion
             c.model.widgets = c.config.widgets
+            c.model.themeID = c.config.themeID
             c.syncBlur(animated: false)
         }
         DataHub.shared.register(store.masks.flatMap { $0.widgets })
@@ -146,12 +161,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.removeAllItems()
         let s = store.settings
 
-        let header = NSMenuItem(title: "影幕 — \(controllers.count) 条遮挡", action: nil, keyEquivalent: "")
+        let headerText = controllers.isEmpty
+            ? "影幕 — 没有遮挡条，按 \(s.hotkey(.newMask).display) 新建"
+            : "影幕 — \(controllers.count) 条遮挡"
+        let header = NSMenuItem(title: headerText, action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
         menu.addItem(.separator())
 
         add(menu, "新建遮挡条", #selector(menuAddMask), hint: s.hotkey(.newMask).display)
+        if lastClosed != nil {
+            add(menu, "撤销关闭", #selector(menuUndoClose))
+        }
         let anyVisible = controllers.contains { !$0.config.hidden }
         add(menu, anyVisible ? "全部隐藏" : "全部显示", #selector(menuToggleHidden), hint: s.hotkey(.toggleHidden).display)
         let anyUnlocked = controllers.contains { !$0.config.locked }
@@ -288,6 +309,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: 菜单动作
 
     @objc private func menuAddMask() { addMask() }
+
+    @objc private func menuUndoClose() { undoClose() }
 
     @objc private func menuResetPos() {
         if let c = activeController { resetPosition(c) }

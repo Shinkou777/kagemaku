@@ -27,7 +27,7 @@ enum SkinPresets {
         s.borderBottom = RGBA(hex: "#FFFFFF", alpha: 0.05)
         s.glowRadius = 26
         s.glowColor = RGBA(hex: "#000000", alpha: 0.55)
-        s.effect = .shimmer
+        s.effect = .none
         s.effectColor = RGBA(hex: "#DCE8FF", alpha: 0.5)
         s.effectIntensity = 0.22
         s.effectSpeed = 0.5

@@ -17,6 +17,7 @@ final class MaskVisualModel: ObservableObject {
     @Published var hoverItem: ToolItem? = nil
     @Published var sizeHint: String = ""
     @Published var widgets: [MaskWidget] = []
+    @Published var themeID: String = DeviceTheme.departure.id
 
     var effectiveOpacity: Double { peeking ? peekOpacity : opacity }
 }
@@ -122,7 +123,8 @@ struct MaskVisual: View {
     var body: some View {
         ZStack {
             SkinLayer(skin: m.skin, opacity: m.effectiveOpacity, reduceMotion: m.reduceMotion)
-            WidgetLayer(widgets: m.widgets, opacity: m.peeking ? m.peekOpacity : 1.0)
+            WidgetLayer(widgets: m.widgets, themeID: m.themeID,
+                        opacity: m.peeking ? m.peekOpacity : 1.0)
             ChromeLayer(m: m)
         }
         .padding(maskPad)

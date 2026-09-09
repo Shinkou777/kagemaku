@@ -53,6 +53,7 @@ final class MaskController: NSObject, MaskRootDelegate {
         model.trackMode = config.trackMode
         model.trackTitle = trackTitle()
         if model.widgets != config.widgets { model.widgets = config.widgets }
+        if model.themeID != config.themeID { model.themeID = config.themeID }
         root.snapEnabled = store.settings.snapEdges
         panel.ignoresMouseEvents = config.locked
         panel.level = store.settings.aboveFullscreen ? .screenSaver : .floating
