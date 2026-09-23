@@ -1,2 +1,6 @@
 .DS_Store
 *.o
+
+# Local notes for coding agents (not published)
+CLAUDE.md
+AGENTS.md

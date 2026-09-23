@@ -4,6 +4,12 @@
 
 ## 装
 
+直接用：从 [Releases](https://github.com/Shinkou777/kagemaku/releases) 下载 `Kagemaku.dmg`，把 Kagemaku.app 拖进「应用程序」。
+这个包没有经过 Apple 公证，第一次打开要在访达里右键 App → 打开。
+自动吸附字幕要在「系统设置 → 隐私与安全性 → 屏幕录制」里给它授权。
+
+从源码装：
+
 ```bash
 ./scripts/install.sh
 ```
@@ -118,3 +124,7 @@ kagemaku     running    2161     on       0.1.0
 
 - 屏幕录制权限是 ad-hoc 签名认的身份，每次重新编译后可能要重新授权
 - 自动吸附字幕靠横向梯度，画面纹理复杂时会被骗走，灵敏度需要手调
+
+## 许可
+
+MIT，见 [LICENSE](LICENSE)。
