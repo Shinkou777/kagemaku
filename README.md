@@ -125,6 +125,16 @@ kagemaku     running    2161     on       0.1.0
 - 屏幕录制权限是 ad-hoc 签名认的身份，每次重新编译后可能要重新授权
 - 自动吸附字幕靠横向梯度，画面纹理复杂时会被骗走，灵敏度需要手调
 
+## ShinkoLab 的其他工具
+
+影幕由 [ShinkoLab](https://shinkolab.app) 出品。ShinkoLab 是 Isen 的实验室，Isen 在日本、中国从事 AI 教育、技术培训与咨询。制作记录在 [note](https://note.com/heishinkou) 和 [小红书 @先進元素](https://www.xiaohongshu.com/user/profile/5e493a3900000000010079b6)。
+
+| 工具 | 做什么 |
+|---|---|
+| [幻灯 GENTO](https://github.com/Shinkou777/gento) | Claude Code skill：给一段素材，用代码做出带配乐的动画短片 |
+| [文房 BUNBO](https://github.com/Shinkou777/bunbo-skill) | Claude Code skill：素材做成小红书长图和 Ins 日英卡片 |
+| [浮子 UKI](https://github.com/Shinkou777/uki) | macOS 桌面小浮窗，显示 Claude 的用量限额 |
+
 ## 许可
 
 MIT，见 [LICENSE](LICENSE)。
