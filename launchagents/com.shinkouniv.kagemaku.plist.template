@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.shinkotera.kagemaku</string>
+    <string>com.shinkouniv.kagemaku</string>
     <key>ProgramArguments</key>
     <array>
         <string>/Applications/Kagemaku.app/Contents/MacOS/Kagemaku</string>
