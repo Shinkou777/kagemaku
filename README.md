@@ -48,7 +48,7 @@ kagemaku     running    2161     on       0.1.0
   浮在全屏之上 是　贴边吸附 是　动效 开
 ```
 
-日志在 `~/Library/Logs/Kagemaku/`，LaunchAgent 是 `~/Library/LaunchAgents/app.shinkolab.kagemaku.plist`。
+日志在 `~/Library/Logs/Kagemaku/`，LaunchAgent 是 `~/Library/LaunchAgents/com.shinkotera.kagemaku.plist`。
 
 ## 用
 
@@ -125,9 +125,9 @@ kagemaku     running    2161     on       0.1.0
 - 屏幕录制权限是 ad-hoc 签名认的身份，每次重新编译后可能要重新授权
 - 自动吸附字幕靠横向梯度，画面纹理复杂时会被骗走，灵敏度需要手调
 
-## ShinkoLab 的其他工具
+## ShinkoTera 的其他工具
 
-影幕由 [ShinkoLab](https://shinkolab.app) 出品。ShinkoLab 是 Isen 的实验室，Isen 在日本、中国从事 AI 教育、技术培训与咨询。制作记录在 [note](https://note.com/heishinkou) 和 [小红书 @先進元素](https://www.xiaohongshu.com/user/profile/5e493a3900000000010079b6)。
+影幕由 [ShinkoTera](https://shinkotera.com) 出品。ShinkoTera 是 Isen 的实验室，Isen 在日本、中国从事 AI 教育、技术培训与咨询。制作记录在 [note](https://note.com/heishinkou) 和 [小红书 @先進元素](https://www.xiaohongshu.com/user/profile/5e493a3900000000010079b6)。
 
 | 工具 | 做什么 |
 |---|---|

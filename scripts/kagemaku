@@ -4,7 +4,7 @@
 set -uo pipefail
 
 REPO="__REPO__"
-LABEL="app.shinkolab.kagemaku"
+LABEL="com.shinkotera.kagemaku"
 APP="/Applications/Kagemaku.app"
 BIN="$APP/Contents/MacOS/Kagemaku"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
@@ -21,7 +21,18 @@ is_loaded() { launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; }
 
 need_app() { [ -x "$BIN" ] || die "没找到 $APP，先跑 kagemaku install"; }
 
+# 2026-10 改名 ShinkoTera 之前的标识：装新的之前停掉旧自启项、删掉旧 plist，偏好设置搬到新标识下
+OLD_LABEL="app.shinkolab.kagemaku"
+drop_old() {
+    launchctl bootout "$DOMAIN/$OLD_LABEL" 2>/dev/null
+    rm -f "$HOME/Library/LaunchAgents/$OLD_LABEL.plist"
+    if /usr/bin/defaults read "$OLD_LABEL" >/dev/null 2>&1 && ! /usr/bin/defaults read "$LABEL" >/dev/null 2>&1; then
+        /usr/bin/defaults export "$OLD_LABEL" - | /usr/bin/defaults import "$LABEL" -
+    fi
+}
+
 write_plist() {
+    drop_old
     mkdir -p "$HOME/Library/LaunchAgents" "$LOGDIR"
     sed "s|__HOME__|$HOME|g" "$REPO/launchagents/$LABEL.plist.template" > "$PLIST"
 }
