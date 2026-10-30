@@ -1,5 +1,4 @@
 import AppKit
-import CoreImage
 import SwiftUI
 
 // MARK: - 视觉模型
@@ -12,6 +11,7 @@ final class MaskVisualModel: ObservableObject {
     @Published var hovering: Bool = false
     @Published var locked: Bool = false
     @Published var reduceMotion: Bool = false
+    @Published var mode: MaskMode = .cover
     @Published var trackMode: TrackMode = .manual
     @Published var trackTitle: String = ""
     @Published var hoverItem: ToolItem? = nil
@@ -20,6 +20,8 @@ final class MaskVisualModel: ObservableObject {
     @Published var themeID: String = DeviceTheme.departure.id
 
     var effectiveOpacity: Double { peeking ? peekOpacity : opacity }
+
+    var toolItems: [ToolItem] { ToolItem.items(for: mode) }
 }
 
 // MARK: - 悬浮层（工具条 / 边角 / 标签），不吃鼠标事件
@@ -40,62 +42,70 @@ struct ChromeLayer: View {
                     lockBadge(s)
                 }
             }
-            .frame(width: s.width, height: s.height)
+            .frame(width: s.width, height: s.height, alignment: .topLeading)
         }
         .allowsHitTesting(false)
     }
 
     private func toolbar(_ s: CGSize) -> some View {
-        ForEach(ToolbarLayout.rects(in: s), id: \.0.rawValue) { item, r in
+        ForEach(ToolbarLayout.rects(in: s, items: m.toolItems), id: \.0.rawValue) { item, r in
             toolButton(item: item, rect: r)
         }
     }
 
     private func toolButton(item: ToolItem, rect: CGRect) -> some View {
         let active = m.hoverItem == item
+        let on = item == .learn && m.mode == .learn
         return ZStack {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(Color.black.opacity(active ? 0.55 : 0.32))
+                .fill(on ? Color.white.opacity(active ? 0.95 : 0.85) : Color.black.opacity(active ? 0.62 : 0.4))
             RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .strokeBorder(Color.white.opacity(active ? 0.55 : 0.18), lineWidth: 0.8)
-            Image(systemName: item == .lock && m.locked ? "lock.fill" : item.symbol)
+                .strokeBorder(Color.white.opacity(active ? 0.55 : 0.2), lineWidth: 0.8)
+            Image(systemName: item.symbol(locked: m.locked))
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color.white.opacity(active ? 1 : 0.82))
+                .foregroundStyle(on ? Color.black.opacity(0.85) : Color.white.opacity(active ? 1 : 0.85))
         }
         .frame(width: rect.width, height: rect.height)
         .position(x: rect.midX, y: rect.midY)
-        .shadow(color: .black.opacity(0.5), radius: 4, y: 1)
+        .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
     }
 
+    /// 左上角的状态签：平时写追踪状态，鼠标停在按钮上时写按钮是干什么的
     private func infoTag(_ s: CGSize) -> some View {
-        let text = m.trackTitle.isEmpty ? m.trackMode.label : m.trackTitle
-        let show = s.width > 320 && s.height > 40
+        let tip = m.hoverItem.map { $0.tip(mode: m.mode, locked: m.locked) }
+        let text = tip ?? (m.trackTitle.isEmpty ? m.trackMode.label : m.trackTitle)
+        let room = ToolbarLayout.rects(in: s, items: m.toolItems).first?.1.minX ?? s.width
+        let show = room - ToolbarLayout.inset * 2 > 90
         return HStack(spacing: 5) {
-            Image(systemName: m.trackMode.symbol)
-                .font(.system(size: 10, weight: .semibold))
+            if tip == nil {
+                Image(systemName: m.mode == .learn ? "character.book.closed" : m.trackMode.symbol)
+                    .font(.system(size: 10, weight: .semibold))
+            }
             Text(text)
                 .font(.system(size: 11, weight: .medium))
-            if !m.sizeHint.isEmpty {
+                .lineLimit(1)
+            if tip == nil && !m.sizeHint.isEmpty {
                 Text(m.sizeHint)
-                    .font(.system(size: 10, weight: .regular).monospacedDigit())
+                    .font(.system(size: 10).monospacedDigit())
                     .foregroundStyle(Color.white.opacity(0.6))
             }
         }
-        .foregroundStyle(Color.white.opacity(0.86))
+        .foregroundStyle(Color.white.opacity(0.9))
         .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .frame(height: ToolbarLayout.size - 4)
         .background(
-            Capsule().fill(Color.black.opacity(0.38))
+            Capsule().fill(Color.black.opacity(0.45))
                 .overlay(Capsule().strokeBorder(Color.white.opacity(0.14), lineWidth: 0.8))
         )
-        .position(x: 0, y: 0)
-        .offset(x: ToolbarLayout.inset + 60, y: ToolbarLayout.inset + 11)
+        .frame(maxWidth: max(0, room - ToolbarLayout.inset * 2), alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .offset(x: ToolbarLayout.inset, y: ToolbarLayout.top(in: s) + 2)
         .opacity(show ? 1 : 0)
-        .shadow(color: .black.opacity(0.4), radius: 4, y: 1)
+        .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
     }
 
     private func corners(_ s: CGSize) -> some View {
-        let len: CGFloat = 14
+        let len: CGFloat = min(14, s.height / 3)
         let inset: CGFloat = 3
         return Path { p in
             p.move(to: CGPoint(x: inset, y: inset + len)); p.addLine(to: CGPoint(x: inset, y: inset)); p.addLine(to: CGPoint(x: inset + len, y: inset))
@@ -113,7 +123,31 @@ struct ChromeLayer: View {
             .foregroundStyle(Color.white.opacity(0.5))
             .padding(4)
             .background(Circle().fill(Color.black.opacity(0.35)))
-            .position(x: s.width - 14, y: 14)
+            .position(x: s.width - 14, y: min(14, s.height / 2))
+    }
+}
+
+/// 外发光只画在条身外面。阴影要是直接挂在半透明的着色层上，
+/// 条身里面也会透出一层阴影，整条玻璃就被压暗了。
+struct GlowLayer: View {
+    let skin: Skin
+    let opacity: Double
+
+    var body: some View {
+        Canvas { gc, size in
+            let r = min(skin.glowRadius, Skin.maxGlow)
+            guard r > 0.5, skin.glowColor.a > 0.01 else { return }
+            let bar = CGRect(origin: .zero, size: size).insetBy(dx: maskPad, dy: maskPad)
+            guard bar.width > 2, bar.height > 2 else { return }
+            let shape = Path(roundedRect: bar, cornerRadius: Skin.clampRadius(skin.cornerRadius, bar.size), style: .circular)
+            var outside = Path(CGRect(origin: .zero, size: size))
+            outside.addPath(shape)
+            gc.clip(to: outside, style: FillStyle(eoFill: true))
+            gc.addFilter(.shadow(color: skin.glowColor.color, radius: r, x: 0, y: r * 0.18))
+            gc.fill(shape, with: .color(.black))
+        }
+        .opacity(opacity)
+        .allowsHitTesting(false)
     }
 }
 
@@ -122,14 +156,133 @@ struct MaskVisual: View {
 
     var body: some View {
         ZStack {
-            SkinLayer(skin: m.skin, opacity: m.effectiveOpacity, reduceMotion: m.reduceMotion)
-            WidgetLayer(widgets: m.widgets, themeID: m.themeID,
-                        opacity: m.peeking ? m.peekOpacity : 1.0)
-            ChromeLayer(m: m)
+            GlowLayer(skin: m.skin, opacity: m.effectiveOpacity)
+            ZStack {
+                SkinLayer(skin: m.skin, opacity: m.effectiveOpacity, reduceMotion: m.reduceMotion)
+                WidgetLayer(widgets: m.widgets, themeID: m.themeID,
+                            opacity: m.peeking ? m.peekOpacity : 1.0)
+                ChromeLayer(m: m)
+            }
+            .padding(maskPad)
         }
-        .padding(maskPad)
         .animation(.easeOut(duration: 0.14), value: m.peeking)
         .animation(.easeOut(duration: 0.12), value: m.hovering)
+    }
+}
+
+// MARK: - 玻璃
+
+/// 背景模糊。系统材质在模糊上面还叠了一层灰、一层提亮和一层桌面色，
+/// pure 时把这几层藏掉、饱和度还原，只留模糊本身；半径也能自己定。
+/// 这些是 NSVisualEffectView 里的图层，AppKit 换材质、换外观时会重建，所以每次 layout 都重新套一遍。
+final class GlassView: NSVisualEffectView {
+    var pure = false
+    /// 0 用系统材质自带的半径
+    var radius: Double = 0
+    /// 乘在系统饱和度上；pure 时直接当饱和度用
+    var saturation: Double = 1
+    var featherX: CGFloat = 0
+    var featherY: CGFloat = 0
+    var cornerRadius: CGFloat = 0
+
+    /// 各材质原本的半径和饱和度，换回系统值时要用
+    private var stock: [String: (radius: Double, saturation: Double)] = [:]
+    private var maskKey = ""
+
+    override func layout() {
+        super.layout()
+        applyTweaks()
+        applyMask()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsLayout = true
+    }
+
+    func refresh() {
+        maskKey = ""
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+        applyTweaks()
+        applyMask()
+    }
+
+    private func applyTweaks() {
+        guard let root = layer else { return }
+        for mat in root.sublayers ?? [] {
+            guard let subs = mat.sublayers,
+                  let backdrop = subs.first(where: { $0.name == "backdrop" }) else { continue }
+            let key = mat.name ?? "?"
+            if stock[key] == nil {
+                let blur = backdrop.value(forKeyPath: "filters.gaussianBlur.inputRadius") as? Double ?? 30
+                let sat = backdrop.value(forKeyPath: "filters.colorSaturate.inputAmount") as? Double ?? 1
+                stock[key] = (blur, sat)
+            }
+            let base = stock[key]!
+            backdrop.setValue(radius > 0 ? radius : base.radius, forKeyPath: "filters.gaussianBlur.inputRadius")
+            backdrop.setValue((pure ? 1.0 : base.saturation) * saturation, forKeyPath: "filters.colorSaturate.inputAmount")
+            for l in subs where l !== backdrop { l.isHidden = pure }
+        }
+    }
+
+    private func applyMask() {
+        let size = bounds.size
+        let key = "\(size.width)x\(size.height) \(featherX) \(featherY) \(cornerRadius)"
+        guard key != maskKey, size.width > 1, size.height > 1 else { return }
+        maskKey = key
+        if featherX > 0.5 || featherY > 0.5 {
+            // maskImage 只认硬边，羽化要挂在图层的 mask 上
+            maskImage = nil
+            layer?.mask = GlassView.featherLayer(size: size, fx: min(featherX, size.width / 2 - 1),
+                                                 fy: min(featherY, size.height / 2 - 1))
+        } else {
+            layer?.mask = nil
+            maskImage = GlassView.roundedMask(radius: Skin.clampRadius(Double(cornerRadius), size))
+        }
+    }
+
+    static func roundedMask(radius: CGFloat) -> NSImage? {
+        guard radius > 0.5 else { return nil }
+        let d = radius * 2 + 2
+        let img = NSImage(size: NSSize(width: d, height: d), flipped: false) { rect in
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+            return true
+        }
+        img.capInsets = NSEdgeInsets(top: radius, left: radius, bottom: radius, right: radius)
+        img.resizingMode = .stretch
+        return img
+    }
+
+    /// 四边 smoothstep 渐隐的遮罩，中间一像素拉伸铺满
+    static func featherLayer(size: CGSize, fx: CGFloat, fy: CGFloat) -> CALayer {
+        let fx = max(0, fx), fy = max(0, fy)
+        let scale: CGFloat = 2
+        let W = Int((fx * 2 + 2) * scale), H = Int((fy * 2 + 2) * scale)
+        var px = [UInt8](repeating: 0, count: W * H * 4)
+        func ss(_ t: CGFloat) -> CGFloat { let x = max(0, min(1, t)); return x * x * (3 - 2 * x) }
+        let w = CGFloat(W) / scale, h = CGFloat(H) / scale
+        for j in 0..<H {
+            for i in 0..<W {
+                let x = (CGFloat(i) + 0.5) / scale, y = (CGFloat(j) + 0.5) / scale
+                let ax = fx > 0 ? ss(min(x, w - x) / fx) : 1
+                let ay = fy > 0 ? ss(min(y, h - y) / fy) : 1
+                px[(j * W + i) * 4 + 3] = UInt8(max(0, min(255, ax * ay * 255)))
+            }
+        }
+        let m = CALayer()
+        m.frame = CGRect(origin: .zero, size: size)
+        if let ctx = CGContext(data: &px, width: W, height: H, bitsPerComponent: 8, bytesPerRow: W * 4,
+                               space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+           let img = ctx.makeImage() {
+            m.contents = img
+            m.contentsScale = scale
+            m.contentsCenter = CGRect(x: fx / w, y: fy / h, width: 2 / w, height: 2 / h)
+        } else {
+            m.backgroundColor = NSColor.black.cgColor
+        }
+        return m
     }
 }
 
@@ -168,11 +321,11 @@ final class MaskRootView: NSView {
     let model: MaskVisualModel
     var snapEnabled = true
 
-    private let blurView = NSVisualEffectView()
+    private let glass = GlassView()
     private var host: PassthroughHostingView<MaskVisual>!
     private var tracking: NSTrackingArea?
     private var dragZone: DragZone = .move
-    private var dragging = false
+    private(set) var dragging = false
     private var startMouse: NSPoint = .zero
     private var startFrame: NSRect = .zero
     private var pressedItem: ToolItem?
@@ -187,10 +340,10 @@ final class MaskRootView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
 
-        blurView.blendingMode = .behindWindow
-        blurView.state = .active
-        blurView.autoresizingMask = []
-        addSubview(blurView)
+        glass.blendingMode = .behindWindow
+        glass.state = .active
+        glass.autoresizingMask = []
+        addSubview(glass)
 
         host = PassthroughHostingView(rootView: MaskVisual(m: model))
         host.translatesAutoresizingMaskIntoConstraints = false
@@ -205,57 +358,42 @@ final class MaskRootView: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    private var lastMaskSize: CGSize = .zero
-
     override func layout() {
         super.layout()
-        blurView.frame = contentRect
-        if contentRect.size != lastMaskSize {
-            lastMaskSize = contentRect.size
-            blurView.maskImage = MaskRootView.roundedMask(
-                radius: Skin.clampRadius(model.skin.cornerRadius, contentRect.size))
-        }
+        glass.frame = contentRect
     }
 
     // MARK: 玻璃层（真正的背景模糊，必须留在 AppKit 里）
 
     func applyBlur(skin: Skin, alpha: CGFloat, animated: Bool) {
-        blurView.isHidden = !skin.blur
+        glass.isHidden = !skin.blur
         guard skin.blur else { return }
-        blurView.material = skin.material.material
-        blurView.appearance = skin.appearance.appearance
-        blurView.maskImage = MaskRootView.roundedMask(radius: Skin.clampRadius(skin.cornerRadius, contentRect.size))
-        if abs(skin.blurSaturation - 1) > 0.02 {
-            let f = CIFilter(name: "CIColorControls",
-                             parameters: ["inputSaturation": skin.blurSaturation])
-            blurView.layer?.filters = f.map { [$0] } ?? []
-        } else {
-            blurView.layer?.filters = []
-        }
+        glass.material = skin.material.material
+        glass.appearance = skin.appearance.appearance
+        glass.pure = skin.pureBlur
+        glass.radius = skin.blurRadius
+        glass.saturation = skin.blurSaturation
+        glass.featherX = CGFloat(skin.feather)
+        glass.featherY = CGFloat(min(4, skin.feather * 0.15))
+        glass.cornerRadius = CGFloat(skin.cornerRadius)
+        glass.refresh()
         if animated {
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.14
-                blurView.animator().alphaValue = alpha
+                glass.animator().alphaValue = alpha
             }
         } else {
-            blurView.alphaValue = alpha
+            glass.alphaValue = alpha
         }
-    }
-
-    static func roundedMask(radius: CGFloat) -> NSImage? {
-        guard radius > 0.5 else { return nil }
-        let d = radius * 2 + 2
-        let img = NSImage(size: NSSize(width: d, height: d), flipped: false) { rect in
-            NSColor.black.setFill()
-            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
-            return true
-        }
-        img.capInsets = NSEdgeInsets(top: radius, left: radius, bottom: radius, right: radius)
-        img.resizingMode = .stretch
-        return img
     }
 
     // MARK: 命中范围
+
+    /// 条身连同四边的拖拽热区，屏幕坐标
+    var liveScreenRect: CGRect {
+        guard let w = window else { return .zero }
+        return w.frame.insetBy(dx: maskPad - ToolbarLayout.edgeHot, dy: maskPad - ToolbarLayout.edgeHot)
+    }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let sv = superview else { return super.hitTest(point) }
@@ -281,15 +419,19 @@ final class MaskRootView: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
-        model.hovering = false
-        model.hoverItem = nil
-        NSCursor.arrow.set()
+        endHover()
+    }
+
+    func endHover() {
+        guard !dragging else { return }
+        if model.hovering { model.hovering = false }
+        if model.hoverItem != nil { model.hoverItem = nil }
     }
 
     override func mouseMoved(with event: NSEvent) {
         let p = local(event)
-        model.hovering = true
-        let item = ToolbarLayout.hit(p, in: contentRect.size)
+        if !model.hovering { model.hovering = true }
+        let item = ToolbarLayout.hit(p, in: contentRect.size, items: model.toolItems)
         if item != model.hoverItem { model.hoverItem = item }
         if item != nil {
             NSCursor.pointingHand.set()
@@ -330,7 +472,7 @@ final class MaskRootView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let p = local(event)
-        if let item = ToolbarLayout.hit(p, in: contentRect.size) {
+        if let item = ToolbarLayout.hit(p, in: contentRect.size, items: model.toolItems) {
             pressedItem = item
             return
         }
@@ -371,8 +513,8 @@ final class MaskRootView: NSView {
             f.size.width += dx; f.size.height += dy
         }
 
-        f.size.width = max(70 + maskPad * 2, f.size.width)
-        f.size.height = max(26 + maskPad * 2, f.size.height)
+        f.size.width = max(minBarSize.width + maskPad * 2, f.size.width)
+        f.size.height = max(minBarSize.height + maskPad * 2, f.size.height)
         if dragZone == .move, snapEnabled { f = snapped(f) }
 
         win.setFrame(f, display: true)
@@ -384,7 +526,7 @@ final class MaskRootView: NSView {
     override func mouseUp(with event: NSEvent) {
         if let item = pressedItem {
             let p = local(event)
-            if ToolbarLayout.hit(p, in: contentRect.size) == item {
+            if ToolbarLayout.hit(p, in: contentRect.size, items: model.toolItems) == item {
                 delegate?.maskRootClicked(self, item: item)
             }
             pressedItem = nil
@@ -424,8 +566,12 @@ final class MaskRootView: NSView {
 
 // MARK: - 面板
 
-/// 条身四周留出的透明边，给外发光和阴影用
-let maskPad: CGFloat = 24
+/// 条身四周留出的透明边，给外发光用。发光半径夹在 Skin.maxGlow 以内，
+/// 高斯阴影大约在 1.5 倍半径处才淡到看不见，再加上往下的偏移，48 刚好不裁出硬边。
+let maskPad: CGFloat = 48
+
+/// 条身最小尺寸
+let minBarSize = CGSize(width: 70, height: 22)
 
 final class MaskPanel: NSPanel {
     init(frame: NSRect) {

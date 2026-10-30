@@ -1,206 +1,179 @@
 import AppKit
 import SwiftUI
 
-// MARK: - 配色
+// 设置窗用系统的分组表单，跟着系统深浅色走。这里放几处共用的行和预览画面。
 
-enum UI {
-    static let bg = Color(red: 0.043, green: 0.047, blue: 0.063)
-    static let panel = Color(red: 0.078, green: 0.086, blue: 0.110)
-    static let panelHi = Color(red: 0.106, green: 0.118, blue: 0.149)
-    static let stroke = Color.white.opacity(0.09)
-    static let strokeHi = Color.white.opacity(0.18)
-    static let text = Color.white.opacity(0.92)
-    static let dim = Color.white.opacity(0.52)
-    static let faint = Color.white.opacity(0.34)
-    static let accent = Color(red: 0.43, green: 0.90, blue: 1.0)
-    static let accent2 = Color(red: 1.0, green: 0.30, blue: 0.62)
-}
+// MARK: - 行
 
-// MARK: - 基础组件
-
-struct SectionTitle: View {
-    let text: String
+/// 标题、一句说明、滑块和读数
+struct SliderRow: View {
+    let title: String
     var note: String? = nil
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(text)
-                .font(.system(size: 12, weight: .semibold))
-                .tracking(1.2)
-                .foregroundStyle(UI.dim)
-            if let note {
-                Text(note)
-                    .font(.system(size: 11))
-                    .foregroundStyle(UI.faint)
-            }
-        }
-        .padding(.bottom, 2)
-    }
-}
-
-struct Card<Content: View>: View {
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            content
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(UI.panel)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(UI.stroke, lineWidth: 1)
-                )
-        )
-    }
-}
-
-struct Row<Control: View>: View {
-    let label: String
-    var note: String? = nil
-    @ViewBuilder var control: Control
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 14) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label)
-                    .font(.system(size: 13))
-                    .foregroundStyle(UI.text)
-                if let note {
-                    Text(note)
-                        .font(.system(size: 11))
-                        .foregroundStyle(UI.faint)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            Spacer(minLength: 12)
-            control
-        }
-    }
-}
-
-struct NumberSlider: View {
     let value: Binding<Double>
     let range: ClosedRange<Double>
-    var step: Double = 0.01
+    var step: Double? = nil
     var format: (Double) -> String = { String(format: "%.0f", $0) }
 
     var body: some View {
-        HStack(spacing: 10) {
+        LabeledContent {
+            HStack(spacing: 10) {
+                slider.frame(width: 190)
+                Text(format(value.wrappedValue))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(width: 52, alignment: .trailing)
+            }
+        } label: {
+            Text(title)
+            if let note { Text(note) }
+        }
+    }
+
+    @ViewBuilder
+    private var slider: some View {
+        if let step {
             Slider(value: value, in: range, step: step)
-                .frame(width: 168)
-                .tint(UI.accent)
-            Text(format(value.wrappedValue))
-                .font(.system(size: 11, weight: .medium).monospacedDigit())
-                .foregroundStyle(UI.dim)
-                .frame(width: 46, alignment: .trailing)
+        } else {
+            Slider(value: value, in: range)
         }
     }
 }
 
-struct Segmented<T: Hashable>: View {
-    let items: [(T, String)]
-    @Binding var selection: T
-
-    var body: some View {
-        HStack(spacing: 3) {
-            ForEach(items, id: \.0) { item in
-                segment(item.0, item.1)
-            }
-        }
-        .padding(3)
-        .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(Color.black.opacity(0.3))
-                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(UI.stroke, lineWidth: 1))
-        )
-    }
-
-    private func segment(_ v: T, _ title: String) -> some View {
-        let on = selection == v
-        return Text(title)
-            .font(.system(size: 12, weight: on ? .semibold : .regular))
-            .foregroundStyle(on ? Color.black.opacity(0.85) : UI.dim)
-            .padding(.horizontal, 11)
-            .padding(.vertical, 5)
-            .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(on ? UI.accent : Color.clear)
-            )
-            .contentShape(Rectangle())
-            .onTapGesture { selection = v }
-    }
-}
-
-struct GhostButton: View {
+/// 标题、一句说明和一个开关
+struct ToggleRow: View {
     let title: String
-    var symbol: String? = nil
-    var tone: Color = UI.strokeHi
-    let action: () -> Void
-
-    @State private var hover = false
+    var note: String? = nil
+    let isOn: Binding<Bool>
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                if let symbol {
-                    Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
-                }
-                Text(title).font(.system(size: 12, weight: .medium))
-            }
-            .foregroundStyle(hover ? UI.text : UI.dim)
-            .padding(.horizontal, 11)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(hover ? Color.white.opacity(0.08) : Color.white.opacity(0.03))
-                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(tone, lineWidth: 1))
-            )
+        Toggle(isOn: isOn) {
+            Text(title)
+            if let note { Text(note) }
         }
-        .buttonStyle(.plain)
-        .onHover { hover = $0 }
     }
 }
 
-struct PlainField: View {
-    let placeholder: String
-    @Binding var text: String
-
-    var body: some View {
-        TextField(placeholder, text: $text)
-            .textFieldStyle(.plain)
-            .font(.system(size: 12))
-            .foregroundStyle(UI.text)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.black.opacity(0.28))
-                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(UI.stroke, lineWidth: 1))
-            )
-    }
-}
-
-struct SwatchPicker: View {
-    let label: String
+/// 颜色和它的色号
+struct ColorRow: View {
+    let title: String
     @Binding var rgba: RGBA
 
     var body: some View {
-        HStack(spacing: 8) {
-            ColorPicker("", selection: Binding(
-                get: { rgba.color },
-                set: { rgba = RGBA.from($0) }
-            ), supportsOpacity: true)
-            .labelsHidden()
-            .frame(width: 42)
-            Text(label)
-                .font(.system(size: 11))
-                .foregroundStyle(UI.faint)
+        LabeledContent(title) {
+            HStack(spacing: 8) {
+                Text(rgba.hexString + (rgba.a < 0.995 ? "  \(Int((rgba.a * 100).rounded()))%" : ""))
+                    .font(.system(size: 11).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                ColorPicker("", selection: Binding(
+                    get: { rgba.color },
+                    set: { rgba = RGBA.from($0) }
+                ), supportsOpacity: true)
+                .labelsHidden()
+            }
         }
+    }
+}
+
+// MARK: - 删除前问一句
+
+@MainActor
+enum Confirm {
+    /// 确认在右、取消在左
+    static func ask(_ title: String, detail: String, action: String = "移除") -> Bool {
+        let a = NSAlert()
+        a.messageText = title
+        a.informativeText = detail
+        let ok = a.addButton(withTitle: action)
+        ok.hasDestructiveAction = true
+        a.addButton(withTitle: "取消")
+        let app = NSApp.delegate as? AppDelegate
+        app?.lowerPanels()
+        defer { app?.restorePanels() }
+        return a.runModal() == .alertFirstButtonReturn
+    }
+}
+
+// MARK: - 预览用的假画面
+
+/// 一段渐变当画面，底下可以叠一行或两行字幕，用来看遮挡效果
+struct FakeFrame: View {
+    var compact: Bool = false
+    var lines: [String] = ["この街の灯りは、ぜんぶ誰かの生活だ"]
+    /// 给第一行盖上学外语那种透明玻璃，值是模糊半径
+    var glassFirst: Double? = nil
+
+    var body: some View {
+        ZStack {
+            scene
+            VStack(spacing: compact ? 2 : 4) {
+                Spacer()
+                ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
+                    if i == 0, let r = glassFirst {
+                        glassLine(line, radius: r)
+                    } else {
+                        subtitle(line, big: i == 0 && lines.count > 1)
+                    }
+                }
+            }
+            .padding(.bottom, compact ? 12 : 22)
+        }
+    }
+
+    private var scene: some View {
+        ZStack {
+            LinearGradient(colors: [Color(red: 0.11, green: 0.14, blue: 0.26),
+                                    Color(red: 0.30, green: 0.20, blue: 0.34),
+                                    Color(red: 0.62, green: 0.36, blue: 0.32)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+            Circle()
+                .fill(Color.orange.opacity(0.35))
+                .frame(width: compact ? 40 : 110)
+                .blur(radius: compact ? 12 : 30)
+                .offset(x: compact ? 40 : 130, y: compact ? -18 : -40)
+            Circle()
+                .fill(Color(red: 0.4, green: 0.7, blue: 0.9).opacity(0.25))
+                .frame(width: compact ? 30 : 90)
+                .blur(radius: compact ? 10 : 24)
+                .offset(x: compact ? -50 : -160, y: compact ? 8 : 20)
+        }
+    }
+
+    private func subtitle(_ s: String, big: Bool) -> some View {
+        Text(s)
+            .font(.system(size: compact ? 9 : (big ? 19 : 15), weight: .medium))
+            .foregroundStyle(.white)
+            .shadow(color: .black, radius: 1.2)
+            .shadow(color: .black.opacity(0.8), radius: 3)
+    }
+
+    /// 字糊掉，底下衬一条两端渐隐的淡玻璃，看得出玻璃盖到哪
+    private func glassLine(_ s: String, radius: Double) -> some View {
+        subtitle(s, big: true)
+            .blur(radius: radius)
+            .padding(.horizontal, 44)
+            .padding(.vertical, 5)
+            .background(
+                Rectangle()
+                    .fill(Color.white.opacity(0.07))
+                    .mask(LinearGradient(stops: [.init(color: .clear, location: 0),
+                                                 .init(color: .black, location: 0.15),
+                                                 .init(color: .black, location: 0.85),
+                                                 .init(color: .clear, location: 1)],
+                                         startPoint: .leading, endPoint: .trailing))
+            )
+    }
+}
+
+/// 学外语模式的样子：上面一行中文被糊掉，下面一行外文照常
+struct LearnPreview: View {
+    let strength: Double
+    var zh = "这件事我们以后再说吧"
+    var en = "Let's talk about it later."
+
+    var body: some View {
+        // 预览里中文 19 点，按真机的算法玻璃约 40 点高，半径取 0.2 倍再乘强度
+        FakeFrame(lines: [zh, en], glassFirst: max(1.5, 40 * 0.2 * strength) * 0.45)
+            .frame(height: 150)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }

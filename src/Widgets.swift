@@ -99,7 +99,7 @@ struct MaskWidget: Codable, Identifiable, Equatable {
         return w
     }
 
-    /// 开箱的一组：时钟是唯一的主读数，其余四个同为次级，
+    /// 一键摆上的一组：时钟是唯一的主读数，其余四个同为次级，
     /// 层级靠时钟 1.5 倍的字号和注记的中性小字撑起来。
     /// 左簇是环境，中间是长文跑道，右簇是仪表。
     static var defaultSet: [MaskWidget] {
@@ -109,6 +109,14 @@ struct MaskWidget: Codable, Identifiable, Equatable {
         var quote = make(.quote);     quote.align = 2; quote.role = .secondary
         var clock = make(.clock);     clock.align = 2; clock.role = .primary
         return [date, weather, news, quote, clock]
+    }
+
+    /// v4 以前开箱自带的那组，种类、来源都没改过
+    static func isLegacyDefault(_ list: [MaskWidget]) -> Bool {
+        let kinds = list.map(\.kind)
+        guard kinds == [.date, .weather, .news, .quote, .clock] else { return false }
+        let fresh = defaultSet
+        return zip(list, fresh).allSatisfy { $0.source == $1.source && $0.label == $1.label && $0.format == $1.format }
     }
 }
 

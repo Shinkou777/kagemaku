@@ -12,10 +12,20 @@ final class MaskController: NSObject, MaskRootDelegate {
 
     private var detectFailures = 0
     private var lostWindow = false
+    /// 认字模型还没跑完第一次
+    var warming = false
+
+    /// 最近几秒认到的字幕范围，玻璃按它定位置
+    private let snap = SnapTracker()
+    /// 用户自己摆的左右范围。学外语时玻璃只为长句往外扩，句子短了就退回这里
+    private var baseX: ClosedRange<CGFloat>
+    /// 刚拖过：第一次对齐不限距离，拖到字幕附近就能吸上去
+    private var freshDrag = true
 
     init(config: MaskConfig, app: AppDelegate) {
         self.config = config
         self.app = app
+        self.baseX = config.frame.minX...config.frame.maxX
         self.panel = MaskPanel(frame: MaskController.panelRect(config.frame))
         self.root = MaskRootView(model: model)
         super.init()
@@ -41,22 +51,39 @@ final class MaskController: NSObject, MaskRootDelegate {
         CGWindowID(max(0, panel.windowNumber))
     }
 
+    var isDragging: Bool { root.dragging }
+
+    var wantsDetection: Bool { config.trackMode == .subtitle && !config.hidden }
+
     // MARK: 应用配置
+
+    /// 学外语时用固定的透明玻璃，半径跟着玻璃高度走
+    private func effectiveSkin(height: CGFloat? = nil) -> Skin {
+        let store = Store.shared
+        if config.mode == .learn {
+            return SkinPresets.learn(height: height ?? config.frame.height, strength: store.settings.learnBlur)
+        }
+        return store.skin(config.skinID)
+    }
 
     func applyAll() {
         let store = Store.shared
-        model.skin = store.skin(config.skinID)
-        model.opacity = config.opacity
+        model.skin = effectiveSkin()
+        model.opacity = config.mode == .learn ? 1 : config.opacity
         model.peekOpacity = store.settings.peekOpacity
         model.reduceMotion = store.settings.reduceMotion
         model.locked = config.locked
+        model.mode = config.mode
         model.trackMode = config.trackMode
         model.trackTitle = trackTitle()
-        if model.widgets != config.widgets { model.widgets = config.widgets }
+        let widgets = config.mode == .learn ? [] : config.widgets
+        if model.widgets != widgets { model.widgets = widgets }
         if model.themeID != config.themeID { model.themeID = config.themeID }
         root.snapEnabled = store.settings.snapEdges
         panel.ignoresMouseEvents = config.locked
-        panel.level = store.settings.aboveFullscreen ? .screenSaver : .floating
+        if !(app?.panelsLowered ?? false) {
+            panel.level = store.settings.aboveFullscreen ? .screenSaver : .floating
+        }
         let want = MaskController.panelRect(config.frame)
         if panel.frame != want {
             panel.setFrame(want, display: true)
@@ -76,12 +103,16 @@ final class MaskController: NSObject, MaskRootDelegate {
     private func trackTitle() -> String {
         switch config.trackMode {
         case .manual:
-            return "手动摆放"
+            return config.mode == .learn ? "学外语　手动摆放" : "手动摆放"
         case .window:
             if lostWindow { return "窗口已关闭" }
             return "跟随 " + (config.trackWindowOwner ?? "未选择窗口")
         case .subtitle:
-            return detectFailures > 3 ? "未检出字幕" : "自动吸附字幕"
+            if warming { return "正在准备认字，第一次要十几秒" }
+            if detectFailures > 3 {
+                return config.mode == .learn ? "附近没认出中文字幕" : "附近没认出字幕"
+            }
+            return config.mode == .learn ? "学外语　对齐中文行" : "自动对齐字幕"
         }
     }
 
@@ -101,7 +132,13 @@ final class MaskController: NSObject, MaskRootDelegate {
     func setHidden(_ hidden: Bool) {
         config.hidden = hidden
         Store.shared.update(config)
-        if hidden { panel.orderOut(nil) } else { panel.orderFrontRegardless() }
+        if hidden {
+            root.endHover()
+            panel.orderOut(nil)
+        } else {
+            panel.orderFrontRegardless()
+        }
+        app?.restartDetectTimer()
     }
 
     func setLocked(_ locked: Bool) {
@@ -118,6 +155,7 @@ final class MaskController: NSObject, MaskRootDelegate {
     func setSkin(_ id: UUID) {
         config.skinID = id
         Store.shared.update(config)
+        guard config.mode == .cover else { return }
         model.skin = Store.shared.skin(id)
         syncBlur(animated: false)
     }
@@ -125,14 +163,33 @@ final class MaskController: NSObject, MaskRootDelegate {
     func setOpacity(_ v: Double) {
         config.opacity = v
         Store.shared.update(config)
+        guard config.mode == .cover else { return }
         model.opacity = v
         syncBlur(animated: false)
+    }
+
+    /// 切到学外语时顺手打开自动对齐：要盖的是中文那一行，得先认出它在哪
+    func setMode(_ mode: MaskMode) {
+        guard config.mode != mode else { return }
+        config.mode = mode
+        if mode == .learn && config.trackMode == .manual {
+            config.trackMode = .subtitle
+        }
+        snap.reset()
+        freshDrag = true
+        baseX = visualFrame.minX...visualFrame.maxX
+        detectFailures = 0
+        Store.shared.update(config)
+        applyAll()
+        app?.restartDetectTimer()
     }
 
     func setTrackMode(_ mode: TrackMode, windowID: UInt32? = nil, owner: String? = nil) {
         config.trackMode = mode
         detectFailures = 0
         lostWindow = false
+        snap.reset()
+        freshDrag = true
         if mode == .window {
             config.trackWindowID = windowID ?? config.trackWindowID
             config.trackWindowOwner = owner ?? config.trackWindowOwner
@@ -145,11 +202,47 @@ final class MaskController: NSObject, MaskRootDelegate {
 
     func setFrame(_ visual: CGRect) {
         var f = visual
-        f.size.width = max(70, f.size.width)
-        f.size.height = max(26, f.size.height)
+        f.size.width = max(minBarSize.width, f.size.width)
+        f.size.height = max(minBarSize.height, f.size.height)
         panel.setFrame(MaskController.panelRect(f), display: true)
         config.frame = f
+        baseX = f.minX...f.maxX
+        snap.reset()
+        freshDrag = true
         Store.shared.update(config)
+        refreshLearnSkin()
+    }
+
+    /// 学外语玻璃的模糊半径按高度算，高度变了要重算
+    private func refreshLearnSkin() {
+        guard config.mode == .learn else { return }
+        let s = effectiveSkin(height: visualFrame.height)
+        if s != model.skin {
+            model.skin = s
+            syncBlur(animated: false)
+        }
+    }
+
+    // MARK: 鼠标穿透
+
+    static let pinChrome = Store.testDataDir != nil && ProcessInfo.processInfo.environment["KAGEMAKU_PIN_CHROME"] == "1"
+
+    /// 条身四周那圈透明边上画着外发光，窗口会把那里的点击吃掉。
+    /// 鼠标不在条身上时整块面板设成穿透，底下播放器的进度条照点。
+    func tickMouse() {
+        guard !config.hidden, panel.isVisible else { return }
+        if config.locked {
+            if !panel.ignoresMouseEvents { panel.ignoresMouseEvents = true }
+            return
+        }
+        if root.dragging { return }
+        // 测试截图时让工具条一直亮着
+        if MaskController.pinChrome { if !model.hovering { model.hovering = true }; return }
+        let inside = root.liveScreenRect.contains(NSEvent.mouseLocation)
+        if panel.ignoresMouseEvents == inside {
+            panel.ignoresMouseEvents = !inside
+        }
+        if !inside { root.endHover() }
     }
 
     // MARK: 跟随窗口
@@ -174,31 +267,54 @@ final class MaskController: NSObject, MaskRootDelegate {
         if lostWindow { lostWindow = false; refreshTitle() }
         let target = CGRect(x: wb.minX + CGFloat(config.anchorX) * wb.width,
                             y: wb.minY + CGFloat(config.anchorY) * wb.height,
-                            width: max(70, CGFloat(config.anchorW) * wb.width),
-                            height: max(26, CGFloat(config.anchorH) * wb.height))
+                            width: max(minBarSize.width, CGFloat(config.anchorW) * wb.width),
+                            height: max(minBarSize.height, CGFloat(config.anchorH) * wb.height))
         let cur = visualFrame
         if abs(cur.minX - target.minX) > 0.5 || abs(cur.minY - target.minY) > 0.5
             || abs(cur.width - target.width) > 0.5 || abs(cur.height - target.height) > 0.5 {
             panel.setFrame(MaskController.panelRect(target), display: true)
             config.frame = target
+            baseX = target.minX...target.maxX
         }
     }
 
-    // MARK: 自动吸附字幕
+    // MARK: 自动对齐字幕
 
+    /// 以条身为中心上下放宽，左右各多看 15%。学外语的玻璃很薄，上下至少各留 60 点，才看得见旁边的外文行
     func searchBand() -> CGRect {
         let f = visualFrame
-        let band = CGFloat(Store.shared.settings.detectBand)
-        return CGRect(x: f.minX, y: f.midY - band / 2, width: f.width, height: band)
+        let h = max(CGFloat(Store.shared.settings.detectBand), f.height + 120)
+        let padX = f.width * 0.15
+        return CGRect(x: f.minX - padX, y: f.midY - h / 2, width: f.width + padX * 2, height: h)
     }
 
-    func applyDetected(range: ClosedRange<CGFloat>) {
-        let pad = CGFloat(Store.shared.settings.detectPadding)
-        let f = visualFrame
-        let newY = range.lowerBound - pad
-        let newH = max(26, (range.upperBound - range.lowerBound) + pad * 2)
-        if abs(newY - f.minY) < 3 && abs(newH - f.height) < 3 { return }
-        let target = CGRect(x: f.minX, y: newY, width: f.width, height: newH)
+    func applyReading(_ lines: [TextLine]) {
+        if warming { warming = false; refreshTitle() }
+        guard !root.dragging else { return }
+        let bar = visualFrame
+        guard let pick = SubtitleLayout.pick(lines, mode: config.mode, near: bar, loose: freshDrag) else {
+            noteDetect(success: false)
+            return
+        }
+        freshDrag = false
+        snap.add(pick)
+        noteDetect(success: true)
+
+        let skin = effectiveSkin()
+        let fx = CGFloat(skin.feather), fy = CGFloat(min(4, skin.feather * 0.15))
+        guard var target = snap.target(mode: config.mode, baseX: baseX,
+                                       padding: CGFloat(Store.shared.settings.detectPadding),
+                                       featherX: fx, featherY: fy) else { return }
+        target.size.width = max(minBarSize.width, target.width)
+        target.size.height = max(minBarSize.height, target.height)
+        // 不让玻璃被推出屏幕
+        if let screen = NSScreen.screens.first(where: { $0.frame.intersects(bar) }) {
+            target = target.intersection(screen.frame.insetBy(dx: -1, dy: -1))
+            guard !target.isNull, target.width >= minBarSize.width, target.height >= minBarSize.height else { return }
+        }
+        let moved = abs(target.minX - bar.minX) > 1.5 || abs(target.maxX - bar.maxX) > 1.5
+            || abs(target.minY - bar.minY) > 1.5 || abs(target.maxY - bar.maxY) > 1.5
+        guard moved else { return }
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.12
             ctx.allowsImplicitAnimation = true
@@ -206,6 +322,7 @@ final class MaskController: NSObject, MaskRootDelegate {
         }
         config.frame = target
         Store.shared.update(config)
+        refreshLearnSkin()
     }
 
     func noteDetect(success: Bool) {
@@ -222,8 +339,12 @@ final class MaskController: NSObject, MaskRootDelegate {
     func maskRootFrameChanged(_ v: MaskRootView, live: Bool) {
         config.frame = visualFrame
         if !live {
+            baseX = config.frame.minX...config.frame.maxX
+            snap.reset()
+            freshDrag = true
             Store.shared.update(config)
             if config.trackMode == .window { recomputeAnchor() }
+            refreshLearnSkin()
         }
         Store.shared.activeMaskID = config.id
     }

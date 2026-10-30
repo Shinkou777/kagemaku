@@ -99,7 +99,8 @@ try:
 except Exception as e:
     print("  读不了 state.json:", e); sys.exit(0)
 masks = d.get("masks", [])
-modes = {0: "手动", 1: "跟随窗口", 2: "自动吸附"}
+modes = {0: "手动", 1: "跟随窗口", 2: "自动对齐"}
+uses = {0: "听力", 1: "学外语"}
 styles = {"nixie":"辉光管","splitflap":"翻页牌","dotmatrix":"点阵","seg7":"数码管","neon":"霓虹","plain":"简约"}
 kinds = {"clock":"时间","date":"日期","quote":"行情","weather":"天气","news":"新闻","text":"文字"}
 print("  遮挡条 %d 条" % len(masks))
@@ -112,8 +113,9 @@ for m in masks:
     ws = m.get("widgets", [])
     parts = ["%s/%s" % (kinds.get(x.get("kind"), x.get("kind")), styles.get(x.get("style"), x.get("style")))
              for x in ws if x.get("enabled", True)]
-    print("    %-10s %4dx%-4d @ %d,%d　%s　不透明 %d%%%s"
+    print("    %-10s %4dx%-4d @ %d,%d　%s　%s　不透明 %d%%%s"
           % (m.get("label", "?"), w, h, x, y,
+             uses.get(m.get("mode", 0), "?"),
              modes.get(m.get("trackMode", 0), "?"),
              round(m.get("opacity", 1) * 100),
              ("　" + " ".join(flags)) if flags else ""))
@@ -185,12 +187,22 @@ cmd_doctor() {
     echo "日志目录     $LOGDIR $([ -d "$LOGDIR" ] && echo OK || echo 缺失)"
     echo "数据目录     $DATA $([ -d "$DATA" ] && echo OK || echo 缺失)"
     echo
-    echo "屏幕录制授权只有开「自动吸附字幕」才需要，在系统设置 - 隐私与安全性 - 屏幕录制里看。"
+    echo "屏幕录制授权只有开「自动对齐字幕」（学外语默认开）才需要，在系统设置 - 隐私与安全性 - 屏幕录制里看。"
     echo "重新编译后签名指纹会变，那条授权可能要重新勾一次。"
 }
 
 cmd_open() {
     open "$DATA"
+}
+
+# 打开设置窗，可带页面名：masks learn skins widgets keys tracking about
+cmd_settings() {
+    local pane="${1:-}"
+    if [ -z "$(pid_of)" ]; then
+        cmd_up >/dev/null
+        sleep 1
+    fi
+    /usr/bin/osascript -l JavaScript -e "ObjC.import('Foundation'); \$.NSDistributedNotificationCenter.defaultCenter.postNotificationNameObjectUserInfoDeliverImmediately('com.shinkouniv.kagemaku.openSettings', '$pane', \$(), true)" >/dev/null
 }
 
 usage() {
@@ -208,6 +220,7 @@ usage() {
   kagemaku uninstall     卸载，加 --purge 连数据一起删
   kagemaku doctor        自检：工具链、签名、路径、授权提示
   kagemaku open          打开数据目录
+  kagemaku settings [页]  打开设置窗（页：masks learn skins widgets keys tracking about）
 USAGE
 }
 
@@ -223,6 +236,7 @@ case "${1:-status}" in
     uninstall)   shift; cmd_uninstall "${1:-}" ;;
     doctor)      cmd_doctor ;;
     open)        cmd_open ;;
+    settings)    shift; cmd_settings "${1:-}" ;;
     -h|--help|help) usage ;;
     *)           echo "不认识的子命令：$1"; echo; usage; exit 1 ;;
 esac

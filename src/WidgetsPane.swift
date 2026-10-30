@@ -5,81 +5,82 @@ struct WidgetsPane: View {
     let app: AppDelegate
     @EnvironmentObject var store: Store
 
-    private var maskIndex: Int? {
-        if let id = store.activeMaskID, let i = store.masks.firstIndex(where: { $0.id == id }) { return i }
-        return store.masks.isEmpty ? nil : 0
+    private var maskID: UUID? {
+        if let id = store.activeMaskID, store.masks.contains(where: { $0.id == id }) { return id }
+        return store.masks.first?.id
     }
+
+    private var mask: MaskConfig? { maskID.flatMap { id in store.masks.first { $0.id == id } } }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SectionTitle(text: "显示部件",
-                         note: "字幕挡住了，条身就空着。一条遮挡条只用一个装置主题，数字走一种管子，长文走另一种，字号按条身高度按比例算。")
-            if let i = maskIndex {
-                if store.masks.count > 1 { maskSwitcher(i) }
-                themePicker(i)
-                WidgetStrip(widgets: store.masks[i].widgets, themeID: store.masks[i].themeID)
-                addBar(i)
-                ForEach(store.masks[i].widgets) { w in
-                    WidgetCard(app: app, maskIndex: i, widgetID: w.id)
+        Form {
+            if let m = mask {
+                head(m)
+                ForEach(m.widgets) { w in
+                    WidgetSection(app: app, maskID: m.id, widgetID: w.id)
                 }
-                if store.masks[i].widgets.isEmpty {
-                    Text("这条上面还什么都没有，从上面挑一个加进去。")
-                        .font(.system(size: 12))
-                        .foregroundStyle(UI.faint)
-                }
+            } else {
+                Section { Text("先新建一条遮挡条。").foregroundStyle(.secondary) }
             }
         }
+        .formStyle(.grouped)
     }
 
-    private func maskSwitcher(_ i: Int) -> some View {
-        HStack(spacing: 8) {
-            Text("正在编辑")
-                .font(.system(size: 11))
-                .foregroundStyle(UI.faint)
-            ForEach(Array(store.masks.enumerated()), id: \.element.id) { idx, m in
-                let on = idx == i
-                Text(m.label)
-                    .font(.system(size: 12, weight: on ? .semibold : .regular))
-                    .foregroundStyle(on ? Color.black.opacity(0.85) : UI.dim)
-                    .padding(.horizontal, 10).padding(.vertical, 4)
-                    .background(Capsule().fill(on ? UI.accent : Color.white.opacity(0.05)))
-                    .contentShape(Rectangle())
-                    .onTapGesture { store.activeMaskID = m.id }
+    @ViewBuilder
+    private func head(_ m: MaskConfig) -> some View {
+        Section {
+            if store.masks.count > 1 {
+                Picker("给哪一条", selection: Binding(get: { m.id }, set: { store.activeMaskID = $0 })) {
+                    ForEach(store.masks) { Text($0.label).tag($0.id) }
+                }
             }
-            Spacer()
+            if m.mode == .learn {
+                Text("这条现在是学外语，玻璃上不显示部件。切回听力就能看见。")
+                    .foregroundStyle(.secondary)
+            }
+            WidgetStrip(widgets: m.widgets, themeID: m.themeID)
+                .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
+            HStack {
+                Menu("添加部件") {
+                    ForEach(WidgetKind.allCases) { k in
+                        Button(k.label) { add(m.id, [MaskWidget.make(k)]) }
+                    }
+                }
+                .fixedSize()
+                if m.widgets.isEmpty {
+                    Button("摆上一组示例") { add(m.id, MaskWidget.defaultSet) }
+                }
+                Spacer()
+            }
+        } footer: {
+            Text("练听力时条身空着，可以叠点东西看：时间、行情、天气、新闻。默认什么都不放，盖在画面上一直跳动的字会分心。")
         }
-    }
 
-    private func themePicker(_ i: Int) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Text("装置主题")
-                .font(.system(size: 11, weight: .semibold))
-                .tracking(1.1)
-                .foregroundStyle(UI.dim)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 196), spacing: 10)], spacing: 10) {
+        Section {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 10)], spacing: 10) {
                 ForEach(DeviceTheme.all) { t in
-                    ThemeCard(theme: t, selected: t.id == store.masks[i].themeID) {
-                        store.masks[i].themeID = t.id
-                        store.save()
-                        app.refreshVisuals()
+                    ThemeCard(theme: t, selected: t.id == m.themeID) {
+                        update(m.id) { $0.themeID = t.id }
                     }
                 }
             }
+            .listRowInsets(EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))
+        } header: {
+            Text("装置主题")
+        } footer: {
+            Text("一条只用一种装置：数字走一种管子，长文走另一种，字号按条身高度算。")
         }
     }
 
-    private func addBar(_ i: Int) -> some View {
-        HStack(spacing: 7) {
-            ForEach(WidgetKind.allCases) { k in
-                GhostButton(title: k.label, symbol: k.symbol) {
-                    store.masks[i].widgets.append(MaskWidget.make(k))
-                    store.save()
-                    app.refreshVisuals()
-                    DataHub.shared.register(store.masks.flatMap { $0.widgets })
-                }
-            }
-            Spacer()
-        }
+    private func add(_ id: UUID, _ list: [MaskWidget]) {
+        update(id) { $0.widgets.append(contentsOf: list) }
+    }
+
+    private func update(_ id: UUID, _ change: (inout MaskConfig) -> Void) {
+        guard let i = store.masks.firstIndex(where: { $0.id == id }) else { return }
+        change(&store.masks[i])
+        store.save()
+        app.refreshVisuals()
     }
 }
 
@@ -89,41 +90,35 @@ struct ThemeCard: View {
     let action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             sample
             Text(theme.name)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(UI.text)
+                .font(.system(size: 12, weight: selected ? .semibold : .regular))
             Text(theme.note)
                 .font(.system(size: 10.5))
-                .foregroundStyle(UI.faint)
+                .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(10)
+        .padding(7)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(selected ? UI.panelHi : UI.panel)
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(selected ? UI.accent.opacity(0.8) : UI.stroke,
-                                  lineWidth: selected ? 1.4 : 1))
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.08),
+                              lineWidth: selected ? 2 : 1)
         )
         .contentShape(Rectangle())
         .onTapGesture(perform: action)
     }
 
     private var sample: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             numeric
             Spacer(minLength: 0)
-            Circle().fill(theme.ink.color).frame(width: 8, height: 8)
-            Circle().fill(theme.dim.color).frame(width: 8, height: 8)
-            Circle().fill(theme.up.color).frame(width: 8, height: 8)
         }
         .padding(.horizontal, 9)
-        .frame(height: 44)
+        .frame(height: 42)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.black.opacity(0.34)))
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color(white: 0.09)))
     }
 
     @ViewBuilder
@@ -147,87 +142,105 @@ struct WidgetStrip: View {
 
     var body: some View {
         ZStack {
-            FakeFrame()
-            WidgetLayer(widgets: widgets, themeID: themeID, opacity: 1)
+            FakeFrame(lines: [])
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.black.opacity(0.55))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 16)
+            if widgets.isEmpty {
+                Text("条身空着")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.45))
+            } else {
+                WidgetLayer(widgets: widgets, themeID: themeID, opacity: 1)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 16)
+            }
         }
-        .frame(height: 104)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(UI.stroke, lineWidth: 1))
+        .frame(height: 120)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 
-struct WidgetCard: View {
+struct WidgetSection: View {
     let app: AppDelegate
-    let maskIndex: Int
+    let maskID: UUID
     let widgetID: UUID
     @EnvironmentObject var store: Store
 
-    private var idx: Int? {
-        store.masks[maskIndex].widgets.firstIndex { $0.id == widgetID }
+    private var widget: MaskWidget? {
+        store.masks.first { $0.id == maskID }?.widgets.first { $0.id == widgetID }
     }
 
     var body: some View {
-        if let j = idx {
-            let w = store.masks[maskIndex].widgets[j]
-            Card {
-                header(w, j)
-                Divider().overlay(UI.stroke)
-                Row(label: "位置") {
-                    Segmented(items: [(0, "靠左"), (1, "居中"), (2, "靠右")], selection: bind(j, \.align))
+        if let w = widget {
+            Section {
+                Toggle("显示", isOn: bind(\.enabled))
+                Picker("位置", selection: bind(\.align)) {
+                    Text("靠左").tag(0); Text("居中").tag(1); Text("靠右").tag(2)
                 }
-                Row(label: "层级", note: "主 0.30 倍条高，次 0.20，注 0.133，字号跟着条身走") {
-                    Segmented(items: WidgetRole.allCases.map { ($0, $0.label) }, selection: bind(j, \.role))
+                .pickerStyle(.segmented)
+                Picker(selection: bind(\.role)) {
+                    ForEach(WidgetRole.allCases) { Text($0.label).tag($0) }
+                } label: {
+                    Text("层级")
+                    Text("主是条高的 0.30，次 0.20，注 0.133")
                 }
+                .pickerStyle(.segmented)
                 if w.followTheme {
-                    Row(label: "字号微调") {
-                        NumberSlider(value: bind(j, \.scale), range: 0.7...1.4,
-                                     format: { String(format: "%.2f×", $0) })
-                    }
+                    SliderRow(title: "字号微调", value: bind(\.scale), range: 0.7...1.4,
+                              format: { String(format: "%.2f×", $0) })
                 }
-                Row(label: "跟随装置主题", note: "关掉才自己挑管子和颜色，一条上混装置会散") {
-                    Toggle("", isOn: bind(j, \.followTheme)).labelsHidden().tint(UI.accent)
-                }
+                ToggleRow(title: "跟随装置主题", note: "关掉才能自己挑管子和颜色", isOn: bind(\.followTheme))
                 if !w.followTheme {
-                    Row(label: "样式") {
-                        Menu(w.style.label) {
-                            ForEach(WidgetStyle.allCases) { s in
-                                Button(s.label) { set(j) { $0.style = s } }
-                            }
-                        }.menuStyle(.borderlessButton).fixedSize()
+                    Picker("样式", selection: bind(\.style)) {
+                        ForEach(WidgetStyle.allCases) { Text($0.label).tag($0) }
                     }
-                    Row(label: "字号") {
-                        NumberSlider(value: bind(j, \.size), range: 10...54, step: 1)
-                    }
-                    Row(label: "颜色") {
-                        SwatchPicker(label: w.color.hexString, rgba: bind(j, \.color))
-                    }
+                    SliderRow(title: "字号", value: bind(\.size), range: 10...54, step: 1)
+                    ColorRow(title: "颜色", rgba: bind(\.color))
                 }
-                if w.kind != .text {
-                    Row(label: "注记", note: "行情和天气不填就用代码和地名") {
-                        PlainField(placeholder: "可留空", text: bind(j, \.label)).frame(width: 160)
-                    }
+                content(w)
+                ToggleRow(title: "跑马灯", note: "长文本从右往左滚", isOn: bind(\.marquee))
+                HStack {
+                    Spacer()
+                    Button("移除这个部件…", role: .destructive) { remove(w) }
                 }
-                if !w.kind.sourceHint.isEmpty {
-                    Row(label: sourceLabel(w.kind), note: w.kind.sourceHint) {
-                        PlainField(placeholder: w.kind.sourceHint, text: bind(j, \.source))
-                            .frame(width: 260)
-                    }
-                }
-                if w.kind == .clock || w.kind == .date {
-                    Row(label: "格式", note: "HH:mm:ss / MM月dd日 这类写法，日期不写星期会自动补一个") {
-                        PlainField(placeholder: "HH:mm:ss", text: bind(j, \.format)).frame(width: 180)
-                    }
-                }
-                if w.kind == .quote {
-                    Row(label: "带涨跌幅", note: "涨绿跌红是语义色，不算主题主色") {
-                        Toggle("", isOn: bind(j, \.showChange)).labelsHidden().tint(UI.accent)
-                    }
-                }
-                Row(label: "跑马灯", note: "长文本从右往左滚，新闻用得上") {
-                    Toggle("", isOn: bind(j, \.marquee)).labelsHidden().tint(UI.accent)
-                }
+            } header: {
+                Label(w.kind.label, systemImage: w.kind.symbol)
             }
         }
+    }
+
+    @ViewBuilder
+    private func content(_ w: MaskWidget) -> some View {
+        if w.kind != .text {
+            TextField(text: bind(\.label), prompt: Text("可留空")) {
+                Text("注记")
+                Text("行情和天气不填就用代码和地名")
+            }
+        }
+        if !w.kind.sourceHint.isEmpty {
+            TextField(text: bind(\.source), prompt: Text(w.kind.sourceHint)) {
+                Text(sourceLabel(w.kind))
+            }
+        }
+        if w.kind == .clock || w.kind == .date {
+            TextField(text: bind(\.format), prompt: Text(w.kind == .clock ? "HH:mm:ss" : "MM/dd")) {
+                Text("格式")
+                Text("HH:mm:ss、MM月dd日 这类写法，日期不写星期会自动补")
+            }
+        }
+        if w.kind == .quote {
+            ToggleRow(title: "带涨跌幅", isOn: bind(\.showChange))
+        }
+    }
+
+    private func remove(_ w: MaskWidget) {
+        guard Confirm.ask("移除「\(w.kind.label)」部件？", detail: "这个部件的设置会一起删掉。") else { return }
+        guard let i = store.masks.firstIndex(where: { $0.id == maskID }) else { return }
+        store.masks[i].widgets.removeAll { $0.id == widgetID }
+        store.save()
+        app.refreshVisuals()
     }
 
     private func sourceLabel(_ k: WidgetKind) -> String {
@@ -240,43 +253,16 @@ struct WidgetCard: View {
         }
     }
 
-    private func header(_ w: MaskWidget, _ j: Int) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: w.kind.symbol)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(UI.accent)
-            Text(w.kind.label)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(UI.text)
-            Text(w.role.label)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(UI.dim)
-                .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(Capsule().fill(Color.white.opacity(0.06)))
-            Spacer()
-            Toggle("", isOn: bind(j, \.enabled)).labelsHidden().tint(UI.accent)
-            GhostButton(title: "移除", symbol: "trash", tone: Color.white.opacity(0.12)) {
-                store.masks[maskIndex].widgets.removeAll { $0.id == widgetID }
+    private func bind<V>(_ path: WritableKeyPath<MaskWidget, V>) -> Binding<V> {
+        Binding(
+            get: { widget?[keyPath: path] ?? MaskWidget()[keyPath: path] },
+            set: { v in
+                guard let i = store.masks.firstIndex(where: { $0.id == maskID }),
+                      let j = store.masks[i].widgets.firstIndex(where: { $0.id == widgetID }) else { return }
+                store.masks[i].widgets[j][keyPath: path] = v
                 store.save()
                 app.refreshVisuals()
-                DataHub.shared.register(store.masks.flatMap { $0.widgets })
             }
-        }
-    }
-
-    private func set(_ j: Int, _ change: (inout MaskWidget) -> Void) {
-        var w = store.masks[maskIndex].widgets[j]
-        change(&w)
-        store.masks[maskIndex].widgets[j] = w
-        store.save()
-        app.refreshVisuals()
-        DataHub.shared.register(store.masks.flatMap { $0.widgets })
-    }
-
-    private func bind<V>(_ j: Int, _ path: WritableKeyPath<MaskWidget, V>) -> Binding<V> {
-        Binding(
-            get: { store.masks[maskIndex].widgets[j][keyPath: path] },
-            set: { v in set(j) { $0[keyPath: path] = v } }
         )
     }
 }

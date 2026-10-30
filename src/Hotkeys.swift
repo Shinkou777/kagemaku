@@ -50,7 +50,7 @@ enum HotkeyAction: String, CaseIterable, Codable {
 
     var label: String {
         switch self {
-        case .peek: return "偷看字幕"
+        case .peek: return "偷看"
         case .toggleHidden: return "显示 / 隐藏遮挡条"
         case .toggleLock: return "锁定 / 解锁"
         case .newMask: return "新建一条遮挡条"
@@ -60,10 +60,10 @@ enum HotkeyAction: String, CaseIterable, Codable {
 
     var note: String {
         switch self {
-        case .peek: return "按住时遮挡条变透明，松开复原（可在设置里改成按一下切换）"
+        case .peek: return "按住时玻璃变透明，松开复原"
         case .toggleHidden: return "整块收起来，不占画面"
         case .toggleLock: return "锁定后鼠标穿透，点得到底下的播放器"
-        case .newMask: return "双语字幕就摆两条，各遮各的"
+        case .newMask: return "双语字幕想分开处理时，再摆一条"
         case .cycleSkin: return "在皮肤列表里往后翻一个"
         }
     }
@@ -192,18 +192,17 @@ struct KeyRecorder: NSViewRepresentable {
         override func draw(_ dirtyRect: NSRect) {
             let r = bounds.insetBy(dx: 0.5, dy: 0.5)
             let path = NSBezierPath(roundedRect: r, xRadius: 6, yRadius: 6)
-            (recording ? NSColor.controlAccentColor.withAlphaComponent(0.22)
-                       : NSColor.white.withAlphaComponent(0.06)).setFill()
+            (recording ? NSColor.controlAccentColor.withAlphaComponent(0.18)
+                       : NSColor.controlBackgroundColor).setFill()
             path.fill()
-            (recording ? NSColor.controlAccentColor
-                       : NSColor.white.withAlphaComponent(0.18)).setStroke()
+            (recording ? NSColor.controlAccentColor : NSColor.separatorColor).setStroke()
             path.lineWidth = 1
             path.stroke()
 
             let text = recording ? "按下组合键…" : spec.display
             let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 12, weight: .medium),
-                .foregroundColor: NSColor.white.withAlphaComponent(recording ? 0.9 : 0.82),
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
+                .foregroundColor: recording ? NSColor.controlAccentColor : NSColor.labelColor,
             ]
             let size = (text as NSString).size(withAttributes: attrs)
             (text as NSString).draw(at: NSPoint(x: (bounds.width - size.width) / 2,

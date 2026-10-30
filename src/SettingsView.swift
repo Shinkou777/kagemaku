@@ -2,15 +2,16 @@ import AppKit
 import SwiftUI
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case masks, widgets, skins, keys, tracking, about
+    case masks, learn, skins, widgets, keys, tracking, about
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .masks: return "遮挡条"
-        case .widgets: return "显示部件"
+        case .learn: return "学外语"
         case .skins: return "皮肤"
+        case .widgets: return "显示部件"
         case .keys: return "快捷键"
         case .tracking: return "追踪与检测"
         case .about: return "关于"
@@ -20,8 +21,9 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .masks: return "rectangle.stack"
-        case .widgets: return "gauge.with.dots.needle.bottom.50percent"
+        case .learn: return "character.book.closed"
         case .skins: return "paintpalette"
+        case .widgets: return "clock"
         case .keys: return "keyboard"
         case .tracking: return "scope"
         case .about: return "info.circle"
@@ -29,103 +31,45 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     }
 }
 
+/// 设置窗现在停在哪一页；菜单和工具条可以直接跳过来
+final class SettingsNav: ObservableObject {
+    @Published var pane: SettingsPane = .masks
+}
+
 struct SettingsView: View {
     let app: AppDelegate
+    @ObservedObject var nav: SettingsNav
     @EnvironmentObject var store: Store
-    @State private var pane: SettingsPane = .masks
 
     var body: some View {
-        HStack(spacing: 0) {
-            rail
-            Divider().overlay(UI.stroke)
-            ScrollView {
-                content
-                    .padding(24)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        NavigationSplitView {
+            List(selection: Binding<SettingsPane?>(
+                get: { nav.pane },
+                set: { if let p = $0 { nav.pane = p } }
+            )) {
+                ForEach(SettingsPane.allCases) { p in
+                    Label(p.title, systemImage: p.symbol).tag(p)
+                }
             }
-            .background(UI.bg)
+            .navigationSplitViewColumnWidth(min: 160, ideal: 176, max: 220)
+            .toolbar(removing: .sidebarToggle)
+        } detail: {
+            content
+                .navigationTitle(nav.pane.title)
         }
-        .frame(minWidth: 780, minHeight: 560)
-        .background(UI.bg)
-        .preferredColorScheme(.dark)
+        .frame(minWidth: 760, minHeight: 520)
     }
 
     @ViewBuilder
     private var content: some View {
-        switch pane {
+        switch nav.pane {
         case .masks: MasksPane(app: app)
-        case .widgets: WidgetsPane(app: app)
+        case .learn: LearnPane(app: app)
         case .skins: SkinsPane(app: app)
+        case .widgets: WidgetsPane(app: app)
         case .keys: KeysPane(app: app)
         case .tracking: TrackingPane(app: app)
         case .about: AboutPane()
-        }
-    }
-
-    private var rail: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            brand
-                .padding(.bottom, 14)
-            ForEach(SettingsPane.allCases) { p in
-                railItem(p)
-            }
-            Spacer()
-            footer
-        }
-        .padding(14)
-        .frame(width: 196)
-        .background(Color.black.opacity(0.28))
-    }
-
-    private var brand: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("影幕")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(UI.text)
-            Text("Kagemaku")
-                .font(.system(size: 10, weight: .medium))
-                .tracking(2.6)
-                .foregroundStyle(UI.faint)
-        }
-        .padding(.top, 18)
-        .padding(.leading, 6)
-    }
-
-    private func railItem(_ p: SettingsPane) -> some View {
-        let on = pane == p
-        return HStack(spacing: 9) {
-            Image(systemName: p.symbol)
-                .font(.system(size: 12, weight: .medium))
-                .frame(width: 16)
-            Text(p.title)
-                .font(.system(size: 13, weight: on ? .semibold : .regular))
-            Spacer()
-        }
-        .foregroundStyle(on ? UI.text : UI.dim)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(on ? Color.white.opacity(0.08) : Color.clear)
-                .overlay(alignment: .leading) {
-                    if on {
-                        Capsule().fill(UI.accent).frame(width: 2.5, height: 15)
-                            .padding(.leading, 2)
-                    }
-                }
-        )
-        .contentShape(Rectangle())
-        .onTapGesture { pane = p }
-    }
-
-    private var footer: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            GhostButton(title: "新建遮挡条", symbol: "plus") {
-                app.addMask()
-            }
-            GhostButton(title: "全部显示", symbol: "eye") {
-                for c in app.controllers { c.setHidden(false) }
-            }
         }
     }
 }
@@ -137,129 +81,127 @@ struct MasksPane: View {
     @EnvironmentObject var store: Store
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SectionTitle(text: "遮挡条", note: "双语字幕就摆两条，各遮各的。位置直接在屏幕上拖，这里管属性。")
-            ForEach(store.masks) { m in
-                MaskCard(app: app, id: m.id)
+        Form {
+            if store.masks.isEmpty {
+                Section {
+                    Text("现在一条都没有。点下面的按钮，或者按 \(store.settings.hotkey(.newMask).display) 新建。")
+                        .foregroundStyle(.secondary)
+                }
             }
-            GhostButton(title: "再加一条", symbol: "plus") { app.addMask() }
+            ForEach(store.masks) { m in
+                MaskSection(app: app, id: m.id)
+            }
+            Section {
+                HStack {
+                    Button("新建遮挡条") { app.addMask() }
+                    Spacer()
+                    if store.masks.contains(where: \.hidden) {
+                        Button("全部显示") { for c in app.controllers { c.setHidden(false) } }
+                    }
+                }
+            } footer: {
+                Text("位置直接在屏幕上拖。双语字幕想分开处理，可以摆两条：一条练听力全挡住，一条学外语只盖中文。")
+            }
         }
+        .formStyle(.grouped)
     }
 }
 
-struct MaskCard: View {
+struct MaskSection: View {
     let app: AppDelegate
     let id: UUID
     @EnvironmentObject var store: Store
 
-    private var index: Int? { store.masks.firstIndex { $0.id == id } }
+    private var mask: MaskConfig? { store.masks.first { $0.id == id } }
+    private var controller: MaskController? { app.controller(id) }
 
     var body: some View {
-        if let i = index {
-            let m = store.masks[i]
-            Card {
-                header(m, i)
-                Divider().overlay(UI.stroke)
-                Row(label: "不透明度", note: "调到 30% 以下能隐约看见字幕轮廓，适合做提示") {
-                    NumberSlider(value: bind(i, \.opacity), range: 0.05...1.0,
-                                 format: { "\(Int($0 * 100))%" })
+        if let m = mask {
+            Section {
+                TextField("名称", text: bind(\.label))
+                modeRow(m)
+                trackRow(m)
+                if m.trackMode == .window { windowRow(m) }
+                if m.mode == .cover {
+                    skinRow(m)
+                    SliderRow(title: "不透明度", note: "调到 30% 以下能隐约看见字幕轮廓",
+                              value: bind(\.opacity), range: 0.05...1.0,
+                              format: { "\(Int(($0 * 100).rounded()))%" })
                 }
-                Row(label: "皮肤") {
-                    skinPicker(i, m)
+                ToggleRow(title: "锁定", note: "鼠标穿过去，点得到底下的播放器",
+                          isOn: Binding(get: { m.locked }, set: { controller?.setLocked($0) }))
+                ToggleRow(title: "显示", isOn: Binding(get: { !m.hidden }, set: { controller?.setHidden(!$0) }))
+                LabeledContent("位置") {
+                    Text(rectText(m.frame)).monospacedDigit().foregroundStyle(.secondary)
                 }
-                Row(label: "追踪", note: trackNote(m)) {
-                    Segmented(items: TrackMode.allCases.map { ($0, $0.label) },
-                              selection: bind(i, \.trackMode))
+                HStack {
+                    Button("摆回屏幕中下方") { if let c = controller { app.resetPosition(c) } }
+                    Spacer()
+                    Button("移除这条…", role: .destructive) { if let c = controller { app.confirmRemove(c) } }
                 }
-                if m.trackMode == .window {
-                    Row(label: "跟随哪个窗口") { windowPicker(i, m) }
-                }
-                Row(label: "位置") {
-                    Text(rectText(m.frame))
-                        .font(.system(size: 11).monospacedDigit())
-                        .foregroundStyle(UI.faint)
-                }
-            }
-            .onChange(of: store.masks[i]) { _, _ in
-                app.refreshAll()
+            } header: {
+                Text(m.label)
             }
         }
     }
 
-    private func header(_ m: MaskConfig, _ i: Int) -> some View {
-        HStack(spacing: 10) {
-            PlainField(placeholder: "名称", text: bind(i, \.label))
-                .frame(width: 150)
-            Spacer()
-            toggleChip(m.locked ? "已锁定" : "可拖动", symbol: m.locked ? "lock.fill" : "lock.open",
-                       on: m.locked) {
-                app.controller(id)?.setLocked(!m.locked)
-            }
-            toggleChip(m.hidden ? "已隐藏" : "显示中", symbol: m.hidden ? "eye.slash" : "eye",
-                       on: m.hidden) {
-                app.controller(id)?.setHidden(!m.hidden)
-            }
-            GhostButton(title: "移除", symbol: "trash", tone: Color.white.opacity(0.12)) {
-                if let c = app.controller(id) { app.removeMask(c) }
-            }
-        }
-    }
-
-    private func toggleChip(_ title: String, symbol: String, on: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: symbol).font(.system(size: 10, weight: .semibold))
-                Text(title).font(.system(size: 11, weight: .medium))
-            }
-            .foregroundStyle(on ? UI.accent : UI.dim)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(
-                Capsule().fill(on ? UI.accent.opacity(0.14) : Color.white.opacity(0.04))
-                    .overlay(Capsule().strokeBorder(on ? UI.accent.opacity(0.5) : UI.stroke, lineWidth: 1))
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func skinPicker(_ i: Int, _ m: MaskConfig) -> some View {
-        Menu {
-            ForEach(store.skins) { s in
-                Button(s.name) { store.masks[i].skinID = s.id; store.save(); app.refreshAll() }
-            }
+    private func modeRow(_ m: MaskConfig) -> some View {
+        Picker(selection: Binding(get: { m.mode }, set: { controller?.setMode($0) })) {
+            ForEach(MaskMode.allCases) { Text($0.label).tag($0) }
         } label: {
-            HStack(spacing: 6) {
-                SkinChip(skin: store.skin(m.skinID))
-                Text(store.skin(m.skinID).name).font(.system(size: 12)).foregroundStyle(UI.text)
-                Image(systemName: "chevron.up.chevron.down").font(.system(size: 9)).foregroundStyle(UI.faint)
-            }
+            Text("用途")
+            Text(m.mode.note)
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
+        .pickerStyle(.segmented)
     }
 
-    private func windowPicker(_ i: Int, _ m: MaskConfig) -> some View {
-        Menu {
+    private func trackRow(_ m: MaskConfig) -> some View {
+        Picker(selection: Binding(get: { m.trackMode }, set: { setTrack($0) })) {
+            Text("自动对齐字幕").tag(TrackMode.subtitle)
+            Text(TrackMode.manual.label).tag(TrackMode.manual)
+            Text(TrackMode.window.label).tag(TrackMode.window)
+        } label: {
+            Text("追踪")
+            Text(trackNote(m))
+        }
+    }
+
+    private func setTrack(_ t: TrackMode) {
+        controller?.setTrackMode(t)
+        app.restartDetectTimer()
+    }
+
+    private func windowRow(_ m: MaskConfig) -> some View {
+        Picker("跟随哪个窗口", selection: Binding<UInt32>(
+            get: { m.trackWindowID ?? 0 },
+            set: { wid in
+                guard let w = WindowTracker.list(excluding: [ProcessInfo.processInfo.processIdentifier]).first(where: { $0.id == wid }) else { return }
+                controller?.setTrackMode(.window, windowID: w.id, owner: w.owner)
+            })) {
+            if m.trackWindowID == nil { Text("选一个窗口").tag(UInt32(0)) }
             ForEach(WindowTracker.list(excluding: [ProcessInfo.processInfo.processIdentifier])) { w in
-                Button(w.display) {
-                    app.controller(id)?.setTrackMode(.window, windowID: w.id, owner: w.owner)
-                    if let cfg = app.controller(id)?.config { store.masks[i] = cfg }
-                }
+                Text(w.display).tag(w.id)
             }
-        } label: {
-            Text(m.trackWindowOwner ?? "选一个窗口")
-                .font(.system(size: 12))
-                .foregroundStyle(m.trackWindowOwner == nil ? UI.faint : UI.text)
+            if let wid = m.trackWindowID,
+               !WindowTracker.list(excluding: [ProcessInfo.processInfo.processIdentifier]).contains(where: { $0.id == wid }) {
+                Text((m.trackWindowOwner ?? "窗口") + "（已关闭）").tag(wid)
+            }
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
+    }
+
+    private func skinRow(_ m: MaskConfig) -> some View {
+        Picker("皮肤", selection: Binding(get: { m.skinID }, set: { controller?.setSkin($0) })) {
+            ForEach(store.skins) { s in Text(s.name).tag(s.id) }
+        }
     }
 
     private func trackNote(_ m: MaskConfig) -> String {
         switch m.trackMode {
-        case .manual: return "条固定在屏幕上，你拖到哪就在哪"
-        case .window: return "按相对比例锚在播放器窗口里，窗口移动缩放都跟着走"
-        case .subtitle: return "定时采样字幕区域，自动对齐到那一行，需要屏幕录制权限"
+        case .manual: return "拖到哪就在哪"
+        case .window: return "按比例锚在播放器窗口里，窗口挪动、缩放都跟着走"
+        case .subtitle:
+            return m.mode == .learn ? "认出中文那一行，玻璃上下边对过去，要屏幕录制权限"
+                                    : "认出字幕在哪，条的上下边对过去，要屏幕录制权限"
         }
     }
 
@@ -267,28 +209,88 @@ struct MaskCard: View {
         "x \(Int(r.minX))　y \(Int(r.minY))　\(Int(r.width))×\(Int(r.height))"
     }
 
-    private func bind<V>(_ i: Int, _ path: WritableKeyPath<MaskConfig, V>) -> Binding<V> {
+    /// 名称、不透明度这类只改存档和外观的
+    private func bind<V>(_ path: WritableKeyPath<MaskConfig, V>) -> Binding<V> {
         Binding(
-            get: { store.masks[i][keyPath: path] },
-            set: { store.masks[i][keyPath: path] = $0; store.save() }
+            get: { mask?[keyPath: path] ?? MaskConfig()[keyPath: path] },
+            set: { v in
+                guard let i = store.masks.firstIndex(where: { $0.id == id }) else { return }
+                store.masks[i][keyPath: path] = v
+                store.save()
+                app.refreshVisuals()
+            }
         )
     }
 }
 
-struct SkinChip: View {
-    let skin: Skin
+// MARK: - 学外语
+
+struct LearnPane: View {
+    let app: AppDelegate
+    @EnvironmentObject var store: Store
+    @State private var permitted = SubtitleDetector.hasPermission
+
+    private var learnCount: Int { store.masks.filter { $0.mode == .learn }.count }
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 4, style: .continuous)
-            .fill(LinearGradient(colors: [skin.tintTop.color, skin.tintBottom.color],
-                                 startPoint: .top, endPoint: .bottom))
-            .overlay(
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .strokeBorder(LinearGradient(colors: [skin.borderTop.color, skin.borderBottom.color],
-                                                 startPoint: .topLeading, endPoint: .bottomTrailing),
-                                  lineWidth: 1)
-            )
-            .frame(width: 22, height: 14)
-            .background(Color.white.opacity(0.12).clipShape(RoundedRectangle(cornerRadius: 4)))
+        Form {
+            Section {
+                LearnPreview(strength: store.settings.learnBlur)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
+            } footer: {
+                Text("看双语字幕时，玻璃只糊掉中文那一行，外文照常看。看不懂了按住 \(store.settings.hotkey(.peek).display) 偷看中文。")
+            }
+
+            Section("这条玻璃") {
+                SliderRow(title: "模糊强度", note: "中文还认得出就往右调，画面糊得太多就往左",
+                          value: Binding(get: { store.settings.learnBlur },
+                                         set: { store.settings.learnBlur = $0; store.save(); app.refreshVisuals() }),
+                          range: 0.6...2.0, step: 0.05, format: { String(format: "%.2f×", $0) })
+                LabeledContent("正在学外语的遮挡条") {
+                    Text(learnCount == 0 ? "还没有" : "\(learnCount) 条").foregroundStyle(.secondary)
+                }
+                HStack {
+                    Button(learnCount == 0 ? "把当前这条切到学外语" : "再加一条学外语") {
+                        if learnCount == 0, let c = app.activeController {
+                            c.setMode(.learn)
+                        } else {
+                            app.addMask()
+                            app.activeController?.setMode(.learn)
+                        }
+                    }
+                    Spacer()
+                }
+            }
+
+            Section {
+                LabeledContent("屏幕录制") {
+                    Text(permitted ? "已经允许" : "还没允许").foregroundStyle(permitted ? Color.secondary : Color.orange)
+                }
+                HStack {
+                    Button("打开系统设置") {
+                        CGRequestScreenCaptureAccess()
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    Button("重新检查") { permitted = SubtitleDetector.hasPermission }
+                    Spacer()
+                }
+            } header: {
+                Text("自动对齐要用的权限")
+            } footer: {
+                Text("影幕只拍玻璃附近那一小块画面，在本机认出哪一行是中文，画面不存、不上传。没允许的话玻璃照样能用，要自己拖到中文那一行上。允许之后系统会让影幕重开一次。")
+            }
+
+            Section("怎么认中文行") {
+                Text("有汉字、没有假名的那一行算中文。中日双语时日文那行带假名，不会被盖住。")
+                Text("中文在上、外文在下，或者反过来，都会找准两行之间的缝，玻璃的边停在外文字的外面。")
+                Text("字幕偶尔变成两行，玻璃马上跟着变高；变回一行，过三秒才缩回去，免得句子换得快时露出来。")
+                Text("第一次认字要加载识别模型，新装或刚更新时可能要等十几秒。")
+            }
+            .foregroundStyle(.secondary)
+        }
+        .formStyle(.grouped)
+        .onAppear { permitted = SubtitleDetector.hasPermission }
     }
 }

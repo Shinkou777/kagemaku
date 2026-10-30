@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 enum SkinPresets {
 
@@ -7,6 +8,33 @@ enum SkinPresets {
     }
 
     static let all: [Skin] = [frosted, neonNoir, aurora, sumi, scanline, milk, mosaic]
+
+    static let learnID = uid("11111111-0000-4000-A000-0000000000C1")
+
+    /// 学外语模式用的玻璃：只留模糊，不压暗、不加灰、不描边，左右两端羽化。
+    /// 半径按玻璃高度算：中文字高大约是玻璃高的六成，半径取字高的三分之一上下，字就认不出了。
+    static func learn(height: CGFloat, strength: Double) -> Skin {
+        var s = Skin()
+        s.id = learnID
+        s.name = "透明 Clear"
+        s.builtIn = true
+        s.blur = true
+        s.pureBlur = true
+        s.blurRadius = Double(min(30, max(4, height * 0.2 * CGFloat(strength))))
+        s.material = .hud
+        s.appearance = .dark
+        s.blurSaturation = 1.0
+        s.tintTop = RGBA(hex: "#FFFFFF", alpha: 0)
+        s.tintBottom = RGBA(hex: "#FFFFFF", alpha: 0)
+        s.cornerRadius = 0
+        s.borderWidth = 0
+        s.glowRadius = 0
+        s.glowColor = RGBA(hex: "#000000", alpha: 0)
+        s.effect = .none
+        s.innerHighlight = 0
+        s.feather = 22
+        return s
+    }
 
     // 1. 霧硝子 — 默认。纯毛玻璃，细白边，极淡流光
     static var frosted: Skin {
@@ -25,8 +53,8 @@ enum SkinPresets {
         s.borderWidth = 1
         s.borderTop = RGBA(hex: "#FFFFFF", alpha: 0.34)
         s.borderBottom = RGBA(hex: "#FFFFFF", alpha: 0.05)
-        s.glowRadius = 26
-        s.glowColor = RGBA(hex: "#000000", alpha: 0.55)
+        s.glowRadius = 20
+        s.glowColor = RGBA(hex: "#000000", alpha: 0.38)
         s.effect = .none
         s.effectColor = RGBA(hex: "#DCE8FF", alpha: 0.5)
         s.effectIntensity = 0.22
@@ -52,8 +80,8 @@ enum SkinPresets {
         s.borderWidth = 1.6
         s.borderTop = RGBA(hex: "#FF2D95", alpha: 0.95)
         s.borderBottom = RGBA(hex: "#00E5FF", alpha: 0.9)
-        s.glowRadius = 30
-        s.glowColor = RGBA(hex: "#FF2D95", alpha: 0.5)
+        s.glowRadius = 24
+        s.glowColor = RGBA(hex: "#FF2D95", alpha: 0.45)
         s.effect = .pulse
         s.effectColor = RGBA(hex: "#00E5FF", alpha: 0.85)
         s.effectIntensity = 0.5
@@ -79,8 +107,8 @@ enum SkinPresets {
         s.borderWidth = 1
         s.borderTop = RGBA(hex: "#9DF7FF", alpha: 0.55)
         s.borderBottom = RGBA(hex: "#C79BFF", alpha: 0.35)
-        s.glowRadius = 34
-        s.glowColor = RGBA(hex: "#6E5BFF", alpha: 0.45)
+        s.glowRadius = 26
+        s.glowColor = RGBA(hex: "#6E5BFF", alpha: 0.4)
         s.effect = .aurora
         s.effectColor = RGBA(hex: "#7AF5FF", alpha: 0.8)
         s.effectIntensity = 0.55
@@ -132,8 +160,8 @@ enum SkinPresets {
         s.borderWidth = 1.2
         s.borderTop = RGBA(hex: "#39FF14", alpha: 0.7)
         s.borderBottom = RGBA(hex: "#0B6B23", alpha: 0.5)
-        s.glowRadius = 26
-        s.glowColor = RGBA(hex: "#39FF14", alpha: 0.35)
+        s.glowRadius = 22
+        s.glowColor = RGBA(hex: "#39FF14", alpha: 0.32)
         s.effect = .scanline
         s.effectColor = RGBA(hex: "#8CFFA8", alpha: 0.5)
         s.effectIntensity = 0.4

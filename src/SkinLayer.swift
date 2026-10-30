@@ -1,50 +1,35 @@
 import AppKit
 import SwiftUI
 
-// MARK: - 毛玻璃桥接
-
-struct VisualEffectView: NSViewRepresentable {
-    var material: NSVisualEffectView.Material
-    var appearance: NSAppearance?
-
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let v = NSVisualEffectView()
-        v.blendingMode = .behindWindow
-        v.state = .active
-        v.material = material
-        v.appearance = appearance
-        return v
-    }
-
-    func updateNSView(_ v: NSVisualEffectView, context: Context) {
-        v.material = material
-        v.appearance = appearance
-        v.state = .active
-    }
-}
-
 // MARK: - 工具条几何（AppKit 命中判定与 SwiftUI 绘制共用）
 
 enum ToolItem: Int, CaseIterable {
-    case lock, track, skin, settings, close
+    case lock, learn, track, skin, settings, hide
 
-    var symbol: String {
+    /// 学外语时玻璃是固定的透明款，不给换皮肤
+    static func items(for mode: MaskMode) -> [ToolItem] {
+        mode == .learn ? [.lock, .learn, .track, .settings, .hide] : allCases
+    }
+
+    func symbol(locked: Bool) -> String {
         switch self {
-        case .lock: return "lock.open"
+        case .lock: return locked ? "lock.fill" : "lock.open"
+        case .learn: return "character.book.closed"
         case .track: return "scope"
         case .skin: return "paintpalette"
         case .settings: return "slider.horizontal.3"
-        case .close: return "xmark"
+        case .hide: return "eye.slash"
         }
     }
 
-    var tip: String {
+    func tip(mode: MaskMode, locked: Bool) -> String {
         switch self {
-        case .lock: return "锁定（鼠标穿透）"
-        case .track: return "追踪模式"
-        case .skin: return "切换皮肤"
+        case .lock: return locked ? "解锁" : "锁定，鼠标点得到底下的播放器"
+        case .learn: return mode == .learn ? "学外语：只盖中文（再点回到听力）" : "学外语：只盖中文"
+        case .track: return "怎么跟住字幕"
+        case .skin: return "换皮肤"
         case .settings: return "设置"
-        case .close: return "移除这条"
+        case .hide: return "先藏起来，⌥⌘M 放回"
         }
     }
 }
@@ -55,23 +40,37 @@ enum ToolbarLayout {
     static let inset: CGFloat = 9
     static let edgeHot: CGFloat = 7
 
-    static var width: CGFloat {
-        CGFloat(ToolItem.allCases.count) * size + CGFloat(ToolItem.allCases.count - 1) * gap
+    static func width(_ n: Int) -> CGFloat {
+        CGFloat(n) * size + CGFloat(max(0, n - 1)) * gap
+    }
+
+    /// 按钮行的上沿：条高够就贴顶，矮条就竖直居中
+    static func top(in s: CGSize) -> CGFloat {
+        max(2, min(inset, (s.height - size) / 2))
+    }
+
+    /// 条太窄放不下时，从追踪、皮肤开始往下撤
+    static func fitting(_ items: [ToolItem], in s: CGSize) -> [ToolItem] {
+        var list = items
+        for drop in [ToolItem.skin, .track, .learn, .settings] {
+            if width(list.count) + inset * 2 <= s.width { break }
+            list.removeAll { $0 == drop }
+        }
+        return list
     }
 
     /// 顶部右侧一排（坐标系：左上为原点）
-    static func rects(in s: CGSize) -> [(ToolItem, CGRect)] {
-        let items = ToolItem.allCases
-        let total = width
-        let x0 = max(inset, s.width - inset - total)
-        let y0 = max(4, min(inset, (s.height - size) / 2))
-        return items.enumerated().map { i, item in
+    static func rects(in s: CGSize, items: [ToolItem]) -> [(ToolItem, CGRect)] {
+        let list = fitting(items, in: s)
+        let x0 = max(inset, s.width - inset - width(list.count))
+        let y0 = top(in: s)
+        return list.enumerated().map { i, item in
             (item, CGRect(x: x0 + CGFloat(i) * (size + gap), y: y0, width: size, height: size))
         }
     }
 
-    static func hit(_ p: CGPoint, in s: CGSize) -> ToolItem? {
-        for (item, r) in rects(in: s) where r.insetBy(dx: -2, dy: -2).contains(p) { return item }
+    static func hit(_ p: CGPoint, in s: CGSize, items: [ToolItem]) -> ToolItem? {
+        for (item, r) in rects(in: s, items: items) where r.insetBy(dx: -2, dy: -2).contains(p) { return item }
         return nil
     }
 }
@@ -250,7 +249,10 @@ struct SkinLayer: View {
             }
             .compositingGroup()
             .opacity(opacity)
-            .shadow(color: skin.glowColor.color, radius: skin.glowRadius, x: 0, y: skin.glowRadius * 0.18)
+            // 真机上的外发光由 GlowLayer 画在条身外面；设置页的小预览直接挂阴影
+            .shadow(color: preview ? skin.glowColor.color : .clear,
+                    radius: preview ? min(skin.glowRadius, Skin.maxGlow) * 0.6 : 0,
+                    x: 0, y: preview ? min(skin.glowRadius, Skin.maxGlow) * 0.1 : 0)
         }
     }
 

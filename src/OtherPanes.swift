@@ -8,43 +8,48 @@ struct KeysPane: View {
     @EnvironmentObject var store: Store
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SectionTitle(text: "快捷键", note: "全局生效，播放器在前台也拦得住。点方框再按新的组合就改掉了。")
-            Card {
-                Row(label: "启用全局快捷键") {
-                    Toggle("", isOn: Binding(
-                        get: { store.settings.hotkeysEnabled },
-                        set: { store.settings.hotkeysEnabled = $0; store.save(); app.registerHotkeys() }
-                    )).labelsHidden().tint(UI.accent)
-                }
-                Divider().overlay(UI.stroke)
-                ForEach(Array(HotkeyAction.allCases.enumerated()), id: \.element) { _, action in
-                    Row(label: action.label, note: action.note) {
+        Form {
+            Section {
+                ToggleRow(title: "启用全局快捷键", note: "播放器在前台也拦得住",
+                          isOn: Binding(
+                            get: { store.settings.hotkeysEnabled },
+                            set: { store.settings.hotkeysEnabled = $0; store.save(); app.registerHotkeys() }))
+            }
+            Section {
+                ForEach(HotkeyAction.allCases, id: \.self) { action in
+                    LabeledContent {
                         KeyRecorder(spec: specBinding(action)) { s in
                             store.settings.hotkeys[action.rawValue] = s
                             store.save()
                             app.registerHotkeys()
                         }
-                        .frame(width: 122, height: 26)
+                        .frame(width: 118, height: 24)
+                    } label: {
+                        Text(action.label)
+                        Text(action.note)
                     }
                 }
+            } footer: {
+                Text("点方框，再按新的组合键就改好了；按 esc 取消。")
             }
-            Card {
-                SectionTitle(text: "偷看的方式")
-                Row(label: "按住还是切换") {
-                    Segmented(items: [(true, "按住时透明"), (false, "按一下切换")],
-                              selection: Binding(
-                                get: { store.settings.peekHold },
-                                set: { store.settings.peekHold = $0; store.save() }))
+            .disabled(!store.settings.hotkeysEnabled)
+
+            Section("偷看") {
+                Picker("方式", selection: Binding(
+                    get: { store.settings.peekHold },
+                    set: { store.settings.peekHold = $0; store.save() })) {
+                    Text("按住时看").tag(true)
+                    Text("按一下切换").tag(false)
                 }
-                Row(label: "偷看时的不透明度", note: "留一点点雾比全透明更好认，眼睛不会被字晃到") {
-                    NumberSlider(value: Binding(
-                        get: { store.settings.peekOpacity },
-                        set: { store.settings.peekOpacity = $0; store.save(); app.refreshVisuals() }),
-                                 range: 0...0.6, format: { "\(Int($0 * 100))%" })
-                }
+                .pickerStyle(.segmented)
+                SliderRow(title: "偷看时留多少玻璃", note: "留一点雾比全透明好认，眼睛不会被字晃到",
+                          value: Binding(
+                            get: { store.settings.peekOpacity },
+                            set: { store.settings.peekOpacity = $0; store.save(); app.refreshVisuals() }),
+                          range: 0...0.6, format: { "\(Int(($0 * 100).rounded()))%" })
             }
         }
+        .formStyle(.grouped)
     }
 
     private func specBinding(_ a: HotkeyAction) -> Binding<HotkeySpec> {
@@ -62,72 +67,44 @@ struct TrackingPane: View {
     @EnvironmentObject var store: Store
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SectionTitle(text: "追踪与检测")
-
-            Card {
-                SectionTitle(text: "自动吸附字幕")
-                Text("影幕会在遮挡条附近开一条搜索带，定时采样这块画面，用横向梯度找出成行的文字，然后把条对齐过去。第一次开会弹屏幕录制授权。")
-                    .font(.system(size: 11))
-                    .foregroundStyle(UI.faint)
-                    .fixedSize(horizontal: false, vertical: true)
-                Row(label: "搜索带高度", note: "以遮挡条中心为准上下各扩一半。带越窄越省电，也越不容易跟丢") {
-                    NumberSlider(value: bind(\.detectBand), range: 60...420, step: 10,
-                                 format: { "\(Int($0)) pt" })
-                }
-                Row(label: "灵敏度", note: "调低更容易吸住细字，也更容易被画面纹理骗走") {
-                    NumberSlider(value: bind(\.detectSensitivity), range: 0.2...0.85,
-                                 format: { String(format: "%.2f", $0) })
-                }
-                Row(label: "采样频率") {
-                    NumberSlider(value: bind(\.detectRateHz), range: 1...8, step: 0.5,
-                                 format: { String(format: "%.1f Hz", $0) })
-                }
-                Row(label: "上下留白", note: "对齐后在文字行外多盖出去的边") {
-                    NumberSlider(value: bind(\.detectPadding), range: 0...40, step: 1,
-                                 format: { "\(Int($0)) pt" })
-                }
-                HStack {
-                    GhostButton(title: "打开屏幕录制设置", symbol: "hand.raised") {
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-                    Spacer()
-                }
+        Form {
+            Section {
+                SliderRow(title: "搜索范围", note: "以玻璃为中心上下一共看多高。窄一点省电，也不容易被画面里别的字带跑",
+                          value: bind(\.detectBand), range: 100...420, step: 10, format: { "\(Int($0)) 点" })
+                SliderRow(title: "每秒看几次", note: "认字比较费电，两次够用",
+                          value: bind(\.detectRateHz), range: 1...4, step: 0.5, format: { String(format: "%.1f", $0) })
+                SliderRow(title: "听力模式上下留白", note: "整条挡住时，在字幕外面多盖出去的边",
+                          value: bind(\.detectPadding), range: 0...40, step: 1, format: { "\(Int($0)) 点" })
+            } header: {
+                Text("自动对齐字幕")
+            } footer: {
+                Text("影幕定时拍下玻璃附近那块画面，在本机认出字幕所在的行，把玻璃的上下边对过去。要屏幕录制权限，画面不存、不上传。")
             }
 
-            Card {
-                SectionTitle(text: "行为")
-                Row(label: "浮在全屏视频之上", note: "关掉的话遮挡条只在普通窗口上层，全屏播放时会被盖住") {
-                    Toggle("", isOn: Binding(
-                        get: { store.settings.aboveFullscreen },
-                        set: { store.settings.aboveFullscreen = $0; store.save(); app.refreshAll() }
-                    )).labelsHidden().tint(UI.accent)
-                }
-                Row(label: "贴边吸附", note: "拖到屏幕边缘或水平中线附近会自动对齐") {
-                    Toggle("", isOn: Binding(
-                        get: { store.settings.snapEdges },
-                        set: { store.settings.snapEdges = $0; store.save(); app.refreshAll() }
-                    )).labelsHidden().tint(UI.accent)
-                }
-                Row(label: "关掉动效", note: "流光、扫描线、极光全部静止，省电") {
-                    Toggle("", isOn: Binding(
-                        get: { store.settings.reduceMotion },
-                        set: { store.settings.reduceMotion = $0; store.save(); app.refreshVisuals() }
-                    )).labelsHidden().tint(UI.accent)
-                }
+            Section("行为") {
+                ToggleRow(title: "浮在全屏视频之上", note: "关掉的话，全屏播放时遮挡条会被盖住",
+                          isOn: Binding(
+                            get: { store.settings.aboveFullscreen },
+                            set: { store.settings.aboveFullscreen = $0; store.save(); app.refreshAll() }))
+                ToggleRow(title: "贴边吸附", note: "拖到屏幕边缘或水平中线附近会自动对齐",
+                          isOn: Binding(
+                            get: { store.settings.snapEdges },
+                            set: { store.settings.snapEdges = $0; store.save(); app.refreshAll() }))
+                ToggleRow(title: "关掉动效", note: "流光、扫描线、极光全部静止，省电",
+                          isOn: Binding(
+                            get: { store.settings.reduceMotion },
+                            set: { store.settings.reduceMotion = $0; store.save(); app.refreshVisuals() }))
             }
 
-            Card {
-                SectionTitle(text: "跟随播放器窗口")
-                Text("影幕按相对比例把遮挡条锚在你选的窗口里，窗口移动、缩放、切到别的桌面都跟着走。这条不需要任何权限；窗口标题拿不到时只会显示 App 名。")
-                    .font(.system(size: 11))
-                    .foregroundStyle(UI.faint)
-                    .fixedSize(horizontal: false, vertical: true)
+            Section {
                 WindowList()
+            } header: {
+                Text("跟随播放器窗口")
+            } footer: {
+                Text("遮挡条按比例锚在选中的窗口里，窗口挪动、缩放、切到别的桌面都跟着走。这个不要权限，拿不到窗口标题时只显示 App 名。")
             }
         }
+        .formStyle(.grouped)
     }
 
     private func bind(_ path: WritableKeyPath<GlobalSettings, Double>) -> Binding<Double> {
@@ -142,35 +119,22 @@ struct WindowList: View {
     @State private var windows: [TargetWindow] = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("当前可跟随的窗口")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(UI.dim)
-                Spacer()
-                GhostButton(title: "刷新", symbol: "arrow.clockwise") { reload() }
-            }
+        Group {
             if windows.isEmpty {
-                Text("还没扫到窗口，点一下刷新")
-                    .font(.system(size: 11))
-                    .foregroundStyle(UI.faint)
+                Text("还没找到窗口").foregroundStyle(.secondary)
             } else {
-                ForEach(Array(windows.prefix(8).enumerated()), id: \.element.id) { i, w in
-                    HStack(spacing: 8) {
-                        Text("\(i + 1)")
-                            .font(.system(size: 10, weight: .semibold).monospacedDigit())
-                            .foregroundStyle(UI.faint)
-                            .frame(width: 14, alignment: .trailing)
-                        Text(w.display)
-                            .font(.system(size: 11))
-                            .foregroundStyle(UI.text)
-                            .lineLimit(1)
-                        Spacer()
+                ForEach(windows.prefix(8)) { w in
+                    LabeledContent(w.display) {
                         Text("\(Int(w.bounds.width))×\(Int(w.bounds.height))")
-                            .font(.system(size: 10).monospacedDigit())
-                            .foregroundStyle(UI.faint)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
                     }
+                    .lineLimit(1)
                 }
+            }
+            HStack {
+                Spacer()
+                Button("刷新") { reload() }
             }
         }
         .onAppear { reload() }
@@ -184,42 +148,40 @@ struct WindowList: View {
 // MARK: - 关于
 
 struct AboutPane: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SectionTitle(text: "关于")
-            Card {
-                Text("影幕 Kagemaku")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(UI.text)
-                Text("挡住字幕先听，听不出来再偷看一眼。")
-                    .font(.system(size: 12))
-                    .foregroundStyle(UI.dim)
-                Divider().overlay(UI.stroke)
-                VStack(alignment: .leading, spacing: 7) {
-                    tip("1", "拖条身移动，拖四边和四角缩放，鼠标停上去出工具条。")
-                    tip("2", "锁定之后鼠标穿透，播放器的进度条照点不误，用快捷键解锁。")
-                    tip("3", "双语字幕摆两条，一条遮中文一条留日文。")
-                    tip("4", "换台或者换番，用「跟随播放器窗口」，位置比例记住了就不用重摆。")
-                }
-                Divider().overlay(UI.stroke)
-                Text("数据都在本地：~/Library/Application Support/Kagemaku/")
-                    .font(.system(size: 10).monospaced())
-                    .foregroundStyle(UI.faint)
-            }
-        }
+    private var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版"
     }
 
-    private func tip(_ n: String, _ text: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text(n)
-                .font(.system(size: 10, weight: .bold).monospacedDigit())
-                .foregroundStyle(UI.accent)
-                .frame(width: 16, height: 16)
-                .background(Circle().fill(UI.accent.opacity(0.14)))
-            Text(text)
-                .font(.system(size: 12))
-                .foregroundStyle(UI.dim)
-                .fixedSize(horizontal: false, vertical: true)
+    var body: some View {
+        Form {
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("影幕 Kagemaku").font(.system(size: 18, weight: .semibold))
+                    Text("挡住字幕先听，听不出来再偷看一眼；学外语时只盖中文。")
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 4)
+                LabeledContent("版本", value: version)
+                LabeledContent("数据") {
+                    Text("~/Library/Application Support/Kagemaku/")
+                        .font(.system(size: 11).monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+            Section("用法") {
+                Text("拖条身移动，拖四边和四角缩放，鼠标停上去出工具条。")
+                Text("锁定之后鼠标穿过去，播放器的进度条照点，用快捷键或菜单栏解锁。")
+                Text("学外语：右键选「学外语：只盖中文」，玻璃变透明，只糊中文那一行。")
+                Text("换番也不用重摆：选「跟随播放器窗口」，位置按比例记住。")
+                Text("要退出，右键遮挡条或者点菜单栏图标，选「退出影幕」。")
+            }
+            .foregroundStyle(.secondary)
+            Section {
+                Link("GitHub · Shinkou777/kagemaku", destination: URL(string: "https://github.com/Shinkou777/kagemaku")!)
+                Link("ShinkoUniv", destination: URL(string: "https://shinkouniv.com")!)
+            }
         }
+        .formStyle(.grouped)
     }
 }

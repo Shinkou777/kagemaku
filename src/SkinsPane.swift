@@ -11,19 +11,34 @@ struct SkinsPane: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SectionTitle(text: "皮肤", note: "内置的七套可以直接用。想改就复制一份，改动只落在你自己的那份上。")
-            gallery
+        Form {
+            Section {
+                gallery
+                    .listRowInsets(EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))
+            } footer: {
+                Text("皮肤只管练听力那种整条挡住的遮挡条；学外语用固定的透明玻璃，强度在「学外语」里调。")
+            }
             if let i = store.skins.firstIndex(where: { $0.id == currentID }) {
-                SkinPreview(skin: store.skins[i], opacity: app.activeController?.config.opacity ?? 0.95)
-                actions(i)
-                SkinEditor(app: app, index: i)
+                let s = store.skins[i]
+                Section {
+                    SkinPreview(skin: s, opacity: app.activeController?.config.opacity ?? 0.95)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
+                    actions(s)
+                } header: {
+                    Text(s.name)
+                } footer: {
+                    if s.builtIn { Text("内置皮肤不能改，复制一份就能改，改动只落在你那份上。") }
+                }
+                if !s.builtIn {
+                    SkinEditor(app: app, id: s.id)
+                }
             }
         }
+        .formStyle(.grouped)
     }
 
     private var gallery: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 168), spacing: 12)], spacing: 12) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
             ForEach(store.skins) { s in
                 SkinTile(skin: s, selected: s.id == currentID) {
                     selected = s.id
@@ -32,13 +47,14 @@ struct SkinsPane: View {
         }
     }
 
-    private func actions(_ i: Int) -> some View {
-        let s = store.skins[i]
+    private func actions(_ s: Skin) -> some View {
+        let using = app.activeController?.config.skinID == s.id
         return HStack(spacing: 8) {
-            GhostButton(title: "用在当前遮挡条", symbol: "checkmark.circle") {
+            Button(using ? "当前遮挡条正在用" : "用在当前遮挡条") {
                 app.activeController?.setSkin(s.id)
             }
-            GhostButton(title: "复制一份来改", symbol: "doc.on.doc") {
+            .disabled(using || app.activeController == nil)
+            Button("复制一份来改") {
                 var copy = s
                 copy.id = UUID()
                 copy.builtIn = false
@@ -46,18 +62,16 @@ struct SkinsPane: View {
                 store.upsert(skin: copy)
                 selected = copy.id
             }
+            Spacer()
             if !s.builtIn {
-                GhostButton(title: "删除这套", symbol: "trash", tone: Color.white.opacity(0.12)) {
+                Button("删除这套…", role: .destructive) {
+                    guard Confirm.ask("删除皮肤「\(s.name)」？",
+                                      detail: "删掉就找不回来了。正在用它的遮挡条会换回第一套内置皮肤。",
+                                      action: "删除") else { return }
                     store.deleteSkin(s.id)
                     selected = store.skins.first?.id
                     app.refreshAll()
                 }
-            }
-            Spacer()
-            if s.builtIn {
-                Text("内置皮肤只读，复制一份就能改")
-                    .font(.system(size: 11))
-                    .foregroundStyle(UI.faint)
             }
         }
     }
@@ -69,67 +83,33 @@ struct SkinTile: View {
     let action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             ZStack {
                 FakeFrame(compact: true)
-                SkinLayer(skin: skin, opacity: 0.95, reduceMotion: false, preview: true)
+                SkinLayer(skin: skin, opacity: 0.95, reduceMotion: true, preview: true)
                     .padding(.horizontal, 10)
-                    .frame(height: 34)
+                    .frame(height: 30)
                     .offset(y: 14)
             }
-            .frame(height: 76)
-            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-            HStack(spacing: 5) {
+            .frame(height: 70)
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            HStack(spacing: 4) {
                 Text(skin.name)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(UI.text)
+                    .font(.system(size: 11.5, weight: selected ? .semibold : .regular))
                     .lineLimit(1)
                 if !skin.builtIn {
-                    Text("自定义")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(UI.accent)
-                        .padding(.horizontal, 5).padding(.vertical, 1.5)
-                        .background(Capsule().fill(UI.accent.opacity(0.14)))
+                    Text("自己的").font(.system(size: 10)).foregroundStyle(.secondary)
                 }
             }
         }
-        .padding(8)
+        .padding(5)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(selected ? UI.panelHi : UI.panel)
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(selected ? UI.accent.opacity(0.8) : UI.stroke, lineWidth: selected ? 1.4 : 1))
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.08),
+                              lineWidth: selected ? 2 : 1)
         )
         .contentShape(Rectangle())
         .onTapGesture(perform: action)
-    }
-}
-
-/// 预览用的假画面：一段渐变加一行日文，用来看遮挡效果
-struct FakeFrame: View {
-    var compact: Bool = false
-
-    var body: some View {
-        ZStack {
-            LinearGradient(colors: [Color(red: 0.11, green: 0.14, blue: 0.26),
-                                    Color(red: 0.30, green: 0.20, blue: 0.34),
-                                    Color(red: 0.62, green: 0.36, blue: 0.32)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-            Circle()
-                .fill(Color.orange.opacity(0.35))
-                .frame(width: compact ? 40 : 90)
-                .blur(radius: compact ? 12 : 26)
-                .offset(x: compact ? 40 : 110, y: compact ? -18 : -40)
-            VStack {
-                Spacer()
-                Text("この街の灯りは、ぜんぶ誰かの生活だ")
-                    .font(.system(size: compact ? 9 : 15, weight: .medium))
-                    .foregroundStyle(.white)
-                    .shadow(color: .black, radius: 1.5)
-                    .shadow(color: .black.opacity(0.8), radius: 3)
-                    .padding(.bottom, compact ? 14 : 26)
-            }
-        }
     }
 }
 
@@ -143,112 +123,100 @@ struct SkinPreview: View {
             VStack {
                 Spacer()
                 SkinLayer(skin: skin, opacity: opacity, reduceMotion: false, preview: true)
-                    .frame(height: 52)
-                    .padding(.horizontal, 22)
-                    .padding(.bottom, 16)
+                    .frame(height: 50)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 12)
             }
         }
-        .frame(height: 148)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(UI.stroke, lineWidth: 1))
+        .frame(height: 140)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 
 struct SkinEditor: View {
     let app: AppDelegate
-    let index: Int
+    let id: UUID
     @EnvironmentObject var store: Store
 
-    private var skin: Skin { store.skins[index] }
-    private var locked: Bool { skin.builtIn }
+    private var skin: Skin { store.skins.first { $0.id == id } ?? SkinPresets.frosted }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Card {
-                SectionTitle(text: "玻璃")
-                Row(label: "名称") { PlainField(placeholder: "皮肤名", text: b(\.name)).frame(width: 200) }
-                Row(label: "毛玻璃", note: "关掉就是纯色遮挡，彻底看不见底下") {
-                    Toggle("", isOn: b(\.blur)).labelsHidden().tint(UI.accent)
-                }
-                Row(label: "材质") {
-                    Menu(skin.material.label) {
-                        ForEach(MaterialKind.allCases) { m in
-                            Button(m.label) { set { $0.material = m } }
-                        }
-                    }.menuStyle(.borderlessButton).fixedSize()
-                }
-                Row(label: "玻璃明暗") {
-                    Segmented(items: AppearanceKind.allCases.map { ($0, $0.label) }, selection: b(\.appearance))
-                }
-                Row(label: "饱和度", note: "调高会把底下的画面搅成彩色雾") {
-                    NumberSlider(value: b(\.blurSaturation), range: 0.0...2.5,
-                                 format: { String(format: "%.2f", $0) })
-                }
-            }
-
-            Card {
-                SectionTitle(text: "底色")
-                Row(label: "上端色") { SwatchPicker(label: skin.tintTop.hexString, rgba: b(\.tintTop)) }
-                Row(label: "下端色") { SwatchPicker(label: skin.tintBottom.hexString, rgba: b(\.tintBottom)) }
-                Row(label: "渐变角度") {
-                    NumberSlider(value: b(\.gradientAngle), range: 0...360, step: 1,
-                                 format: { "\(Int($0))°" })
-                }
-                Row(label: "顶部高光") {
-                    NumberSlider(value: b(\.innerHighlight), range: 0...1,
-                                 format: { String(format: "%.2f", $0) })
-                }
-            }
-
-            Card {
-                SectionTitle(text: "轮廓")
-                Row(label: "圆角") { NumberSlider(value: b(\.cornerRadius), range: 0...40, step: 1) }
-                Row(label: "描边粗细") {
-                    NumberSlider(value: b(\.borderWidth), range: 0...5, step: 0.1,
-                                 format: { String(format: "%.1f", $0) })
-                }
-                Row(label: "描边起色") { SwatchPicker(label: skin.borderTop.hexString, rgba: b(\.borderTop)) }
-                Row(label: "描边止色") { SwatchPicker(label: skin.borderBottom.hexString, rgba: b(\.borderBottom)) }
-                Row(label: "外发光半径") { NumberSlider(value: b(\.glowRadius), range: 0...60, step: 1) }
-                Row(label: "发光颜色") { SwatchPicker(label: skin.glowColor.hexString, rgba: b(\.glowColor)) }
-            }
-
-            Card {
-                SectionTitle(text: "动效")
-                Row(label: "类型") {
-                    Menu(skin.effect.label) {
-                        ForEach(SkinEffect.allCases) { e in
-                            Button(e.label) { set { $0.effect = e } }
-                        }
-                    }.menuStyle(.borderlessButton).fixedSize()
-                }
-                Row(label: "动效颜色") { SwatchPicker(label: skin.effectColor.hexString, rgba: b(\.effectColor)) }
-                Row(label: "强度") {
-                    NumberSlider(value: b(\.effectIntensity), range: 0...1,
-                                 format: { String(format: "%.2f", $0) })
-                }
-                Row(label: "速度") {
-                    NumberSlider(value: b(\.effectSpeed), range: 0...3,
-                                 format: { String(format: "%.2f", $0) })
-                }
-            }
+        Section("名称") {
+            TextField("皮肤名", text: b(\.name))
         }
-        .disabled(locked)
-        .opacity(locked ? 0.45 : 1)
+        glass
+        tint
+        outline
+        motion
     }
 
-    private func set(_ change: (inout Skin) -> Void) {
-        var s = store.skins[index]
-        change(&s)
-        store.skins[index] = s
-        store.save()
-        app.refreshVisuals()
+    private var glass: some View {
+        Section("玻璃") {
+            ToggleRow(title: "毛玻璃", note: "关掉就是纯色，彻底看不见底下", isOn: b(\.blur))
+            if skin.blur {
+                Picker("材质", selection: b(\.material)) {
+                    ForEach(MaterialKind.allCases) { Text($0.label).tag($0) }
+                }
+                Picker("玻璃明暗", selection: b(\.appearance)) {
+                    ForEach(AppearanceKind.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                ToggleRow(title: "只留模糊", note: "去掉系统叠在玻璃上的灰和提亮，画面颜色不变", isOn: b(\.pureBlur))
+                SliderRow(title: "模糊半径", note: "0 用材质自带的", value: b(\.blurRadius), range: 0...40, step: 1,
+                          format: { $0 < 0.5 ? "自带" : "\(Int($0))" })
+                SliderRow(title: "饱和度", note: "调高会把底下的画面搅成彩色雾", value: b(\.blurSaturation),
+                          range: 0...2.5, format: { String(format: "%.2f", $0) })
+                SliderRow(title: "两端羽化", note: "0 是硬边圆角", value: b(\.feather), range: 0...40, step: 1)
+            }
+        }
+    }
+
+    private var tint: some View {
+        Section("底色") {
+            ColorRow(title: "上端色", rgba: b(\.tintTop))
+            ColorRow(title: "下端色", rgba: b(\.tintBottom))
+            SliderRow(title: "渐变角度", value: b(\.gradientAngle), range: 0...360, step: 1, format: { "\(Int($0))°" })
+            SliderRow(title: "顶部高光", value: b(\.innerHighlight), range: 0...1, format: { String(format: "%.2f", $0) })
+        }
+    }
+
+    private var outline: some View {
+        Section("轮廓") {
+            SliderRow(title: "圆角", value: b(\.cornerRadius), range: 0...40, step: 1)
+            SliderRow(title: "描边粗细", value: b(\.borderWidth), range: 0...5, step: 0.1, format: { String(format: "%.1f", $0) })
+            ColorRow(title: "描边起色", rgba: b(\.borderTop))
+            ColorRow(title: "描边止色", rgba: b(\.borderBottom))
+            SliderRow(title: "外发光半径", value: b(\.glowRadius), range: 0...Skin.maxGlow, step: 1)
+            ColorRow(title: "发光颜色", rgba: b(\.glowColor))
+        }
+    }
+
+    private var motion: some View {
+        Section {
+            Picker("类型", selection: b(\.effect)) {
+                ForEach(SkinEffect.allCases) { Text($0.label).tag($0) }
+            }
+            if skin.effect != .none {
+                ColorRow(title: "动效颜色", rgba: b(\.effectColor))
+                SliderRow(title: "强度", value: b(\.effectIntensity), range: 0...1, format: { String(format: "%.2f", $0) })
+                SliderRow(title: "速度", value: b(\.effectSpeed), range: 0...3, format: { String(format: "%.2f", $0) })
+            }
+        } header: {
+            Text("动效")
+        } footer: {
+            Text("盖在字幕上的东西一直在动会分心，用不着就选「无」。")
+        }
     }
 
     private func b<V>(_ path: WritableKeyPath<Skin, V>) -> Binding<V> {
         Binding(
-            get: { store.skins[index][keyPath: path] },
-            set: { v in set { $0[keyPath: path] = v } }
+            get: { skin[keyPath: path] },
+            set: { v in
+                guard let i = store.skins.firstIndex(where: { $0.id == id }) else { return }
+                store.skins[i][keyPath: path] = v
+                store.save()
+                app.refreshVisuals()
+            }
         )
     }
 }

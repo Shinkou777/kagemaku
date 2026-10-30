@@ -56,13 +56,13 @@ enum MaterialKind: String, Codable, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .hud: return "HUD（最通透）"
-        case .popover: return "ポップオーバー"
-        case .menu: return "メニュー"
-        case .sidebar: return "サイドバー"
+        case .hud: return "暗玻璃（最通透）"
+        case .popover: return "弹出框"
+        case .menu: return "菜单"
+        case .sidebar: return "侧栏"
         case .underWindow: return "厚玻璃"
-        case .fullScreenUI: return "全屏 UI"
-        case .sheet: return "シート"
+        case .fullScreenUI: return "全屏界面"
+        case .sheet: return "表单"
         }
     }
 
@@ -157,6 +157,7 @@ struct Skin: Codable, Identifiable, Equatable {
     var borderTop: RGBA = RGBA(hex: "#FFFFFF", alpha: 0.32)
     var borderBottom: RGBA = RGBA(hex: "#FFFFFF", alpha: 0.08)
 
+    /// 外发光半径。面板四周只留了 maskPad 的透明边，画的时候会夹到 maxGlow 以内
     var glowRadius: Double = 18
     var glowColor: RGBA = RGBA(hex: "#000000", alpha: 0.45)
 
@@ -166,6 +167,15 @@ struct Skin: Codable, Identifiable, Equatable {
     var effectSpeed: Double = 1.0
 
     var innerHighlight: Double = 0.35
+
+    /// 模糊半径，0 用系统材质自带的
+    var blurRadius: Double = 0
+    /// 去掉系统材质叠的灰和提亮，只留模糊本身
+    var pureBlur: Bool = false
+    /// 左右两端的羽化宽度，0 是硬边圆角
+    var feather: Double = 0
+
+    static let maxGlow: Double = 28
 
     /// 条被拉扁时圆角要跟着收，不然玻璃遮罩会被拉变形
     static func clampRadius(_ r: Double, _ size: CGSize) -> CGFloat {
@@ -187,7 +197,7 @@ enum TrackMode: Int, Codable, CaseIterable, Identifiable {
         switch self {
         case .manual: return "手动摆放"
         case .window: return "跟随播放器窗口"
-        case .subtitle: return "自动吸附字幕行"
+        case .subtitle: return "自动对齐字幕"
         }
     }
 
@@ -208,6 +218,7 @@ struct MaskConfig: Codable, Identifiable, Equatable {
     var opacity: Double = 0.95
     var locked: Bool = false
     var hidden: Bool = false
+    var mode: MaskMode = .cover
 
     var trackMode: TrackMode = .manual
     var trackWindowID: UInt32? = nil
@@ -218,8 +229,8 @@ struct MaskConfig: Codable, Identifiable, Equatable {
     var anchorW: Double = 0.8
     var anchorH: Double = 0.12
 
-    /// 条身上叠的显示部件
-    var widgets: [MaskWidget] = MaskWidget.defaultSet
+    /// 条身上叠的显示部件，开箱是空的，要的在设置里加
+    var widgets: [MaskWidget] = []
     /// 装置主题：一条只用一个显示家族
     var themeID: String = DeviceTheme.departure.id
 }
@@ -229,10 +240,11 @@ struct MaskConfig: Codable, Identifiable, Equatable {
 struct GlobalSettings: Codable {
     var peekOpacity: Double = 0.05
     var peekHold: Bool = true          // true 按住透视，false 按一下切换
-    var detectSensitivity: Double = 0.45
     var detectBand: Double = 150
-    var detectRateHz: Double = 3
+    var detectRateHz: Double = 2
     var detectPadding: Double = 14
+    /// 学外语模式的模糊强度，按玻璃高度换算半径时乘上去
+    var learnBlur: Double = 1.0
     var reduceMotion: Bool = false
     var hotkeysEnabled: Bool = true
     var snapEdges: Bool = true
@@ -269,7 +281,11 @@ final class Store: ObservableObject {
     private var loading = false
     private var needsSave = false
 
+    /// 测试时用 KAGEMAKU_DATA_DIR 另开一份数据，不碰正在用的那份
+    static let testDataDir = ProcessInfo.processInfo.environment["KAGEMAKU_DATA_DIR"]
+
     private var dir: URL {
+        if let p = Store.testDataDir { return URL(fileURLWithPath: p, isDirectory: true) }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return base.appendingPathComponent("Kagemaku", isDirectory: true)
     }
@@ -282,7 +298,7 @@ final class Store: ObservableObject {
         var version: Int? = nil
     }
 
-    static let stateVersion = 4
+    static let stateVersion = 5
 
     private init() {
         load()
@@ -338,14 +354,14 @@ final class Store: ObservableObject {
         if let data = try? Data(contentsOf: stateURL),
            let state = try? JSONDecoder().decode(StateFile.self, from: data) {
             settings = state.settings
-            let stale = (state.version ?? 1) < Store.stateVersion
+            let version = state.version ?? 1
+            let stale = version < Store.stateVersion
             masks = state.masks.map { m in
                 var m = m
                 if !skins.contains(where: { $0.id == m.skinID }) { m.skinID = skins[0].id }
-                // 早期版本的部件组合是没有排版系统时随手摆的，换成现在这套
-                if stale {
-                    m.widgets = MaskWidget.defaultSet
-                    m.themeID = DeviceTheme.departure.id
+                // v5 起开箱不摆部件：还是当年那组默认部件、没动过的，一并撤掉
+                if version < 5 && MaskWidget.isLegacyDefault(m.widgets) {
+                    m.widgets = []
                 }
                 return m
             }
@@ -425,6 +441,9 @@ extension Skin {
         effectIntensity = c.val(.effectIntensity, d.effectIntensity)
         effectSpeed = c.val(.effectSpeed, d.effectSpeed)
         innerHighlight = c.val(.innerHighlight, d.innerHighlight)
+        blurRadius = c.val(.blurRadius, d.blurRadius)
+        pureBlur = c.val(.pureBlur, d.pureBlur)
+        feather = c.val(.feather, d.feather)
     }
 }
 
@@ -440,6 +459,7 @@ extension MaskConfig {
         opacity = c.val(.opacity, d.opacity)
         locked = c.val(.locked, d.locked)
         hidden = c.val(.hidden, d.hidden)
+        mode = c.val(.mode, d.mode)
         trackMode = c.val(.trackMode, d.trackMode)
         trackWindowID = try? c.decodeIfPresent(UInt32.self, forKey: .trackWindowID)
         trackWindowOwner = try? c.decodeIfPresent(String.self, forKey: .trackWindowOwner)
@@ -459,10 +479,10 @@ extension GlobalSettings {
         self.init()
         peekOpacity = c.val(.peekOpacity, d.peekOpacity)
         peekHold = c.val(.peekHold, d.peekHold)
-        detectSensitivity = c.val(.detectSensitivity, d.detectSensitivity)
         detectBand = c.val(.detectBand, d.detectBand)
         detectRateHz = c.val(.detectRateHz, d.detectRateHz)
         detectPadding = c.val(.detectPadding, d.detectPadding)
+        learnBlur = c.val(.learnBlur, d.learnBlur)
         reduceMotion = c.val(.reduceMotion, d.reduceMotion)
         hotkeysEnabled = c.val(.hotkeysEnabled, d.hotkeysEnabled)
         snapEdges = c.val(.snapEdges, d.snapEdges)
