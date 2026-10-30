@@ -241,12 +241,16 @@ struct SkinLayer: View {
     var body: some View {
         GeometryReader { geo in
             let s = geo.size
+            // 极光的椭圆、流光的光带都比条身大，不钉住尺寸的话会把整层撑大：
+            // 着色往条身外面多画一截，极光按撑大的框裁成一块硬边矩形（2026-10-30 曉光皮肤）
             ZStack {
                 base(s)
                 EffectLayer(skin: skin, size: s, reduceMotion: reduceMotion)
+                    .frame(width: s.width, height: s.height)
                     .clipShape(shape(s))
                 stroke(s)
             }
+            .frame(width: s.width, height: s.height)
             .compositingGroup()
             .opacity(opacity)
             // 真机上的外发光由 GlowLayer 画在条身外面；设置页的小预览直接挂阴影

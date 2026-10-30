@@ -7,7 +7,8 @@ enum SkinPresets {
         UUID(uuidString: s) ?? UUID()
     }
 
-    static let all: [Skin] = [frosted, neonNoir, aurora, sumi, scanline, milk, mosaic]
+    /// 列表顺序：暗玻璃打头，亮色的曇硝子排第二（2026-10-30 用户）
+    static let all: [Skin] = [frosted, milk, neonNoir, aurora, sumi, scanline, mosaic]
 
     static let learnID = uid("11111111-0000-4000-A000-0000000000C1")
 
